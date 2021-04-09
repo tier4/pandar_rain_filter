@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
-project(rosbag_processor)
+project(pandar_rain_filter)
 
 set(CMAKE_CXX_STANDARD 11)
 
@@ -33,28 +33,10 @@ include_directories(
         src/include/
         ${catkin_INCLUDE_DIRS}
         ${Boost_INCLUDE_DIRS}
-)
-
-add_executable(rosbag_processor
-        src/rosbag_processor.cpp)
-
-add_executable(rosbag_processor_pandar
-        src/rosbag_processor_pandar.cpp)      
+)   
         
 add_executable(rosbag_processor_pandar_rain_filter
         src/rosbag_processor_pandar_rain_filter.cpp)           
-
-target_link_libraries(rosbag_processor PRIVATE
-        ${catkin_LIBRARIES}
-        ${PCL_LIBRARIES}
-        ${OpenCV_LIBRARIES}
-)
-
-target_link_libraries(rosbag_processor_pandar PRIVATE
-        ${catkin_LIBRARIES}
-        ${PCL_LIBRARIES}
-        ${OpenCV_LIBRARIES}
-)
 
 target_link_libraries(rosbag_processor_pandar_rain_filter PRIVATE
         ${catkin_LIBRARIES}
@@ -63,8 +45,6 @@ target_link_libraries(rosbag_processor_pandar_rain_filter PRIVATE
 )
 ############
 install(TARGETS
-        rosbag_processor
-        rosbag_processor_pandar
         rosbag_processor_pandar_rain_filter
         ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
         LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}

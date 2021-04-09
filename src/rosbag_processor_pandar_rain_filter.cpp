@@ -187,7 +187,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
 
   pcl::PointCloud<PointT>::Ptr cloud_no_rain (new pcl::PointCloud<PointT>);
 
-  pcl::io::loadPCDFile<PointT> ("/home/nithilan/catkin_ws/src/rosbag_processor/no_rain_1_frame.pcd", *cloud_no_rain);
+  pcl::io::loadPCDFile<PointT> ("/home/nithilan/catkin_ws/src/pandar_rain_filter/no_rain_1_frame.pcd", *cloud_no_rain);
   int ind = 0;
   pcl::PointCloud<PointT>::Ptr out (new pcl::PointCloud<PointT>);
   pcl::PointCloud<PointT>::Ptr out2 (new pcl::PointCloud<PointT>);
@@ -217,7 +217,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
   // vis.addPointCloud(cloud_no_rain,red,"src",0);
   // vis.addPointCloud(cloud_t,blue,"tgt",0);
   // vis.addPointCloud(out,green,"out",0);
-  //vis.addPointCloud(out2,yellow,"out2",0);
+  vis.addPointCloud(out2,yellow,"out2",0);
   while(!vis.wasStopped())
   {
           vis.spinOnce();

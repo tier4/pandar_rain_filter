@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="2">
-    <name>rosbag_processor</name>
+    <name>pandar_rain_filter</name>
     <version>1.0.0</version>
     <description>Converter for rosbag to JSON format (ScaleAI) for Japan Taxi data</description>
 

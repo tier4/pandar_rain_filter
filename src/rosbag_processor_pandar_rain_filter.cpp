@@ -32,6 +32,12 @@
 #include <pcl/conversions.h>
 #include <pcl/point_types.h>
 #include <pcl/io/pcd_io.h>
+
+#include <pcl/common/common.h>
+#include <pcl/ModelCoefficients.h>
+#include <pcl/filters/extract_indices.h>
+#include <pcl/segmentation/sac_segmentation.h>
+
 #include <pcl_ros/point_cloud.h>
 #include <pcl_ros/transforms.h>
 #include <pcl_conversions/pcl_conversions.h>
@@ -86,7 +92,7 @@ pcl::PointCloud<PointT>::ConstPtr downsample(const pcl::PointCloud<PointT>::Cons
   if(!downsample_filter) {
     return cloud;
   }
-  double resolution = 0.05;
+  double resolution = 0.01;
   pcl::octree::OctreePointCloud<PointT> octree(resolution);
   octree.setInputCloud(cloud);
   octree.addPointsFromInputCloud();
@@ -185,38 +191,110 @@ static Eigen::Isometry3d odom2isometry(const nav_msgs::OdometryConstPtr& odom_ms
 
 void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds_top){
 
-  pcl::PointCloud<PointT>::Ptr cloud_no_rain (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<PointT>::Ptr cloud_no_rain_orig (new pcl::PointCloud<PointT>);
 
-  pcl::io::loadPCDFile<PointT> ("/home/nithilan/catkin_ws/src/pandar_rain_filter/no_rain_1_frame.pcd", *cloud_no_rain);
+  pcl::io::loadPCDFile<PointT> ("/home/nithilan/catkin_ws/src/pandar_rain_filter/no_rain_1_frame.pcd", *cloud_no_rain_orig);
+
+  pcl::PointCloud<PointT>::Ptr cloud_t_orig(new pcl::PointCloud<PointT>());
   int ind = 0;
+  pcl::fromROSMsg(*clouds_top[ind], *cloud_t_orig);
+
+  pcl::PointCloud<PointT>::ConstPtr cloud_t = downsample(cloud_t_orig);
+  pcl::PointCloud<PointT>::ConstPtr cloud_no_rain = downsample(cloud_no_rain_orig);
+
+	// Segment the ground and remove all points below ground
+
+	pcl::ModelCoefficients::Ptr plane (new pcl::ModelCoefficients);
+	pcl::PointIndices::Ptr inliers_plane (new pcl::PointIndices);
+	pcl::PointCloud<PointT>::Ptr cloud_plane (new pcl::PointCloud<PointT>);
+	pcl::PointCloud<PointT>::Ptr cloud_inliers (new pcl::PointCloud<PointT>);
+	pcl::PointCloud<PointT>::Ptr cloud_no_rain_ngnd (new pcl::PointCloud<PointT>);
+	pcl::PointCloud<PointT>::Ptr cloud_top_ngnd (new pcl::PointCloud<PointT>);
+
+	// Make room for a plane equation (ax+by+cz+d=0)
+	plane->values.resize (4);
+
+	pcl::SACSegmentation<PointT> seg;				// Create the segmentation object
+	seg.setOptimizeCoefficients (true);				// Optional
+	seg.setMethodType (pcl::SAC_RANSAC);
+	seg.setModelType (pcl::SACMODEL_PLANE);
+	seg.setDistanceThreshold (0.1f);
+	seg.setInputCloud (cloud_no_rain);
+	seg.segment (*inliers_plane, *plane);
+
+	if (inliers_plane->indices.size () == 0) {
+		PCL_ERROR ("Could not estimate a planar model for the given dataset.\n");
+		return;
+	}
+
+	// Extract inliers
+	pcl::ExtractIndices<PointT> extract1;
+	extract1.setInputCloud (cloud_no_rain);
+	extract1.setIndices (inliers_plane);
+	extract1.setNegative (false);			// Extract the inliers
+	extract1.filter (*cloud_inliers);		// cloud_inliers contains the plane
+
+
+	PointT minPt, maxPt;
+	pcl::getMinMax3D (*cloud_inliers, minPt, maxPt);
+
+	pcl::ExtractIndices<PointT> extract;
+	pcl::PointIndices::Ptr inliers(new pcl::PointIndices());
+	for (int i = 0; i < (*cloud_no_rain).size(); i++)
+	{
+		if (cloud_no_rain->points[i].z < maxPt.z) // e.g. remove all pts below ground
+		{
+			inliers->indices.push_back(i);
+		}
+	}
+	extract.setInputCloud(cloud_no_rain);
+	extract.setIndices(inliers);
+
+	// Extract outliers
+	extract.setNegative (true);				// Extract the outliers
+	extract.filter (*cloud_no_rain_ngnd);		// original no rain cloud without ground points and below points
+
+	pcl::ExtractIndices<PointT> extract2;
+	pcl::PointIndices::Ptr inliers1(new pcl::PointIndices());
+	for (int i = 0; i < (*cloud_t).size(); i++)
+	{
+		if (cloud_t->points[i].z < maxPt.z) // e.g. remove all pts below zAvg
+		{
+			inliers1->indices.push_back(i);
+		}
+	}
+	extract2.setInputCloud(cloud_t);
+	extract2.setIndices(inliers1);
+
+	// Extract outliers
+	extract2.setNegative (true);				// Extract the outliers
+	extract2.filter (*cloud_top_ngnd);		// original cloud without ground points and below points
+
+
   pcl::PointCloud<PointT>::Ptr out (new pcl::PointCloud<PointT>);
   pcl::PointCloud<PointT>::Ptr out2 (new pcl::PointCloud<PointT>);
   //Segment differences
-  pcl::PointCloud<PointT>::Ptr cloud_t(new pcl::PointCloud<PointT>());
-  pcl::fromROSMsg(*clouds_top[ind], *cloud_t);
   pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT>);
   pcl::SegmentDifferences<PointT> sdiff;
-  sdiff.setInputCloud(cloud_no_rain);
-  sdiff.setTargetCloud(cloud_t);
+  sdiff.setInputCloud(cloud_top_ngnd);
+  sdiff.setTargetCloud(cloud_no_rain_ngnd);
   sdiff.setSearchMethod(tree);
-  sdiff.setDistanceThreshold(10);
+  sdiff.setDistanceThreshold(0);
   sdiff.segment(*out);
-
-  std::cout << *out;
   
-  // Get point clod difference
-  pcl::getPointCloudDifference<PointT> (*cloud_no_rain,*cloud_t,0,tree,*out2);
-
+  // Get point cloud difference
+  pcl::getPointCloudDifference<PointT> (*cloud_top_ngnd,*cloud_no_rain_ngnd,0.5f,tree,*out2);
+  std::cout << *out2; 
   //Visualiztion
   //Color handlers for red, green, blue and yellow color
-  pcl::visualization::PointCloudColorHandlerCustom<PointT> red(cloud_no_rain,255,0,0);
-  pcl::visualization::PointCloudColorHandlerCustom<PointT> blue(cloud_t,0,0,255);
+  pcl::visualization::PointCloudColorHandlerCustom<PointT> red(cloud_no_rain_ngnd,255,0,0);
+  pcl::visualization::PointCloudColorHandlerCustom<PointT> blue(cloud_top_ngnd,0,0,255);
   pcl::visualization::PointCloudColorHandlerCustom<PointT> green(out,0,255,0);
   pcl::visualization::PointCloudColorHandlerCustom<PointT> yellow(out2,255,255,0);    
   pcl::visualization::PCLVisualizer vis("3D View");
-  // vis.addPointCloud(cloud_no_rain,red,"src",0);
-  // vis.addPointCloud(cloud_t,blue,"tgt",0);
-  // vis.addPointCloud(out,green,"out",0);
+  vis.addPointCloud(cloud_no_rain_ngnd,red,"src",0);
+  //vis.addPointCloud(cloud_top_ngnd,blue,"tgt",0);
+  //vis.addPointCloud(out,green,"out",0);
   vis.addPointCloud(out2,yellow,"out2",0);
   while(!vis.wasStopped())
   {

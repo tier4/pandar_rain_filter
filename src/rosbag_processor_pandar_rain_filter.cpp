@@ -52,7 +52,7 @@ struct Range_point
 {
   float distance;
   float intensity;
-  int8_t return_type;
+  float return_type;
   float azimuth;
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 } EIGEN_ALIGN16;
@@ -211,33 +211,6 @@ int missing_pts_counter(int num){
       return 0;      
 }
 
-int count = 0;
-// fill points ring by ring, also add blank points when lidar points are skipped in a ring
-std::vector<Range_point> fill_points(int num, std::vector<Range_point> ring_pts, PointXYZIRADT pt_c){
-  if (num == 0){ //just add the next point
-    Range_point pt;
-    pt.distance = pt_c.distance;
-    pt.intensity = pt_c.intensity;
-    pt.return_type = pt_c.return_type;    
-    pt.azimuth = pt_c.azimuth;
-    ring_pts.push_back(pt);
-    count += 1;
-    ROS_ERROR("Next point: %f, count: %d!!", pt.azimuth, count);
-    return ring_pts;
-  }
-  else if (num == -1){ //add missing points as blank points
-    Range_point pt;
-    count += 1;
-    pt.distance = -1; //we set distance as -1 for blank points
-    pt.intensity = -1;
-    pt.return_type = -1;    
-    pt.azimuth = -1;
-    ROS_ERROR("Blank point: %f, count: %d!!", pt.azimuth, count);
-    ring_pts.push_back(pt);
-    return ring_pts;
-  }
-}
-
 void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds_top){
 
   pcl::PointCloud<PointT>::Ptr cloud_no_rain_orig (new pcl::PointCloud<PointT>);
@@ -248,68 +221,32 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
   int ind = 0;
   pcl::fromROSMsg(*clouds_top[ind], *cloud_t_orig);
   pcl::fromROSMsg(*clouds_top[ind], *cloud_t_xyz);
-  
-  for (int i = 0; i < (*cloud_t_orig).size(); i++) //
-    {
-      if (cloud_t_orig->points[i].return_type == -1 ) // checking ring points
-      {
-        std::cout << "Azimuth negative: " << cloud_t_orig->points[i].azimuth << " Ret_type:" << static_cast<int16_t> (cloud_t_orig->points[i].return_type);
-        std::cout << " Ring id: " << cloud_t_orig->points[i].ring << std::endl;
-      }
-    }
+
   std::vector<std::vector<Range_point>> ring_ids(40) ; // vector with 100 ints.
 	for (int i = 0; i < (*cloud_t_orig).size(); i++) //
 	{
-		// if (cloud_t_orig->points[i].return_type == -1 ) // checking ring points
-		// {
-		// 	std::cout << "Azimuth negative: " << cloud_t_orig->points[i].azimuth << " Ret_type:" << static_cast<int16_t> (cloud_t_orig->points[i].return_type) << std::endl;
-		// }
-    if (cloud_t_orig->points[i].ring == 5 ){
-      //std::cout << "Azimuth: " << cloud_t_orig->points[i].azimuth << " Ret_type:" << static_cast<int16_t> (cloud_t_orig->points[i].return_type) << std::endl;
-      PointXYZIRADT pt_c = cloud_t_orig->points[i];
-      Range_point pt;
-      pt.distance = pt_c.distance;
-      pt.intensity = pt_c.intensity;
-      pt.return_type = pt_c.return_type;    
-      pt.azimuth = pt_c.azimuth;
-      int ring_id = pt_c.ring;
-      if (pt.return_type == 3 || pt.return_type == 5 || pt.return_type == 6){ //Only considering even block valid points
-        ring_ids[ring_id].push_back(pt);
-        count += 1;
-        ROS_ERROR("Next point: %f, count: %d!!", pt.azimuth, count);
-      }
-      if (pt.return_type == -1){ //invalid even block point
-        pt.distance = -1; //we set distance as -1 for blank points
-        pt.intensity = -1;
-        pt.return_type = -1;    
-        pt.azimuth = -1;
-        ROS_ERROR("Blank point: %f, count: %d!!", pt.azimuth, count);
-        ring_ids[ring_id].push_back(pt);
-        count += 1;
-        ROS_ERROR("Came here!!");
-      }
-      // if (pt.return_type == 3 || pt.return_type == 5 || pt.return_type == 6){ //Only considering even block valid points
-      //   if(ring_ids[ring_id].empty()){ //No points stored in the ring yet.
-      //     // Check if any points are skipped in the beginning add blank or no points are skipped store the point #TODO
-      //     ring_ids[ring_id].push_back(pt);
-      //     count += 1;
-      //     ROS_ERROR("First point: %f, count: %d!!", pt.azimuth, count);
-      //   }
-      //   else{ //ring row has already some points, check and add blank points, then add current point
-      //     int diff_azi = abs(ring_ids[ring_id].back().azimuth - pt_c.azimuth);
-      //     if (diff_azi == 0){
-      //       ROS_ERROR("Error: This can't happen!!");
-      //       return;
-      //     }
-      //     else{
-      //       int no_missing_pts = missing_pts_counter(diff_azi);
-      //       ring_ids[ring_id] = fill_points(no_missing_pts, ring_ids[ring_id], pt_c);
-      //     }
-      //   }
-      // }
+    //std::cout << "Azimuth: " << cloud_t_orig->points[i].azimuth << " Ret_type:" << static_cast<int16_t> (cloud_t_orig->points[i].return_type) << std::endl;
+    PointXYZIRADT pt_c = cloud_t_orig->points[i];
+    Range_point pt;
+    pt.distance = pt_c.distance;
+    pt.intensity = pt_c.intensity;
+    pt.return_type = pt_c.return_type;    
+    pt.azimuth = pt_c.azimuth;
+    int ring_id = pt_c.ring;
+    if (pt.return_type == 3 || pt.return_type == 5 || pt.return_type == 6){ //Only considering even block valid points
+      ring_ids[ring_id].push_back(pt);
+      ROS_ERROR("Next point: %f", pt.azimuth);
     }
-	}
-  ROS_ERROR("Ring length: %d", ring_ids[5].size());
+    if (pt.return_type == -1){ //invalid even block point
+      pt.distance = -1; //we set distance as -1 for blank points
+      pt.intensity = -1;
+      pt.return_type = -1;    
+      pt.azimuth = -1;
+      ROS_ERROR("Blank point: %f", pt.azimuth);
+      ring_ids[ring_id].push_back(pt);
+    }
+	}  
+  //std::cout << "ring length: " << ring_ids[5].size() << std::endl;
 
   pcl::PointCloud<PointT>::ConstPtr cloud_t = cloud_t_xyz;//downsample(cloud_t_orig);
   pcl::PointCloud<PointT>::ConstPtr cloud_no_rain = cloud_no_rain_orig;//downsample(cloud_no_rain_orig);

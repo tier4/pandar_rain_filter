@@ -52,7 +52,7 @@ struct Range_point
 {
   float distance;
   float intensity;
-  float return_type;
+  int8_t return_type;
   float azimuth;
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 } EIGEN_ALIGN16;
@@ -202,13 +202,30 @@ static Eigen::Isometry3d odom2isometry(const nav_msgs::OdometryConstPtr& odom_ms
 // Count number of missing points between azimuth scans
 int missing_pts_counter(int num){
   if (num % 20 == 0 && num > 20)
-      return num / 40;
+      return (num / 20) - 1;
   else if ((num - 1) % 20 == 0 && num-1 > 20)
-      return (num - 1) / 40;
+      return ((num - 1) / 20) - 1;
   else if ((num + 1) % 20 == 0 && num+1 > 20)
-      return (num + 1) / 40;
+      return ((num + 1) / 20) - 1;
   else
       return 0;      
+}
+
+int count = 0;
+// fill points ring by ring, also add blank points when lidar points are skipped in a ring
+std::vector<Range_point> fill_points(int num, std::vector<Range_point> ring_pts, PointXYZIRADT pt_c){
+  //add missing points as blank points
+  for (int i = 0; i < num ; i++){
+    Range_point pt;
+    count += 1;
+    pt.distance = -1; //we set distance as -1 for blank points
+    pt.intensity = -1;
+    pt.return_type = -1;    
+    pt.azimuth = -1;
+    ROS_ERROR("Blank point: %f, count: %d!!", pt.azimuth, count);
+    ring_pts.push_back(pt);
+  }
+  return ring_pts;
 }
 
 void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds_top){
@@ -221,32 +238,120 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
   int ind = 0;
   pcl::fromROSMsg(*clouds_top[ind], *cloud_t_orig);
   pcl::fromROSMsg(*clouds_top[ind], *cloud_t_xyz);
-
-  std::vector<std::vector<Range_point>> ring_ids(40) ; // vector with 100 ints.
-	for (int i = 0; i < (*cloud_t_orig).size(); i++) //
+  
+  std::vector<std::vector<Range_point>> ring_ids_first(40) ; 
+  std::vector<std::vector<Range_point>> ring_ids_last(40) ;
+	for (int ring_id = 0; ring_id < 40 ; ring_id++)//
 	{
-    //std::cout << "Azimuth: " << cloud_t_orig->points[i].azimuth << " Ret_type:" << static_cast<int16_t> (cloud_t_orig->points[i].return_type) << std::endl;
-    PointXYZIRADT pt_c = cloud_t_orig->points[i];
-    Range_point pt;
-    pt.distance = pt_c.distance;
-    pt.intensity = pt_c.intensity;
-    pt.return_type = pt_c.return_type;    
-    pt.azimuth = pt_c.azimuth;
-    int ring_id = pt_c.ring;
-    if (pt.return_type == 3 || pt.return_type == 5 || pt.return_type == 6){ //Only considering even block valid points
-      ring_ids[ring_id].push_back(pt);
-      ROS_ERROR("Next point: %f", pt.azimuth);
+    for (int i = 0; i < (*cloud_t_orig).size(); i++) {
+      //std::cout << "Azimuth: " << cloud_t_orig->points[i].azimuth << " Ret_type:" << static_cast<int16_t> (cloud_t_orig->points[i].return_type) << std::endl;
+      PointXYZIRADT pt_c = cloud_t_orig->points[i];
+      if (pt_c.ring == ring_id){
+        Range_point pt;
+        pt.distance = pt_c.distance;
+        pt.intensity = pt_c.intensity;
+        pt.return_type = pt_c.return_type;    
+        pt.azimuth = pt_c.azimuth;
+        if (pt.return_type == 6){ //add first & last ranges
+          if(ring_ids_first[ring_id].empty()){ //No points stored in the ring yet.
+            // Check if any points are skipped in the beginning add blank or no points are skipped store the point #TODO
+            ring_ids_first[ring_id].push_back(pt);
+            ring_ids_last[ring_id].push_back(pt);
+            count += 1;
+            ROS_ERROR("First & Last point: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
+          }
+          else{ //ring row has already some points, check and add blank points, then add current point
+            int diff_azi = abs(ring_ids_first[ring_id].back().azimuth - pt_c.azimuth);
+            if (diff_azi == 0){
+              ROS_ERROR("Error: This can't happen!!");
+              return;
+            }
+            else{
+              int no_missing_pts = missing_pts_counter(diff_azi);
+              ROS_ERROR("missing point first+last: %d!!", no_missing_pts);
+                if (no_missing_pts == 0){ //just add the next point
+                  ring_ids_first[ring_id].push_back(pt);
+                  ring_ids_last[ring_id].push_back(pt);
+                  count += 1;
+                  ROS_ERROR("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
+                }
+                else{ // add null points to both first and last ranges
+                  ring_ids_first[ring_id] = fill_points(no_missing_pts, ring_ids_first[ring_id], pt_c);
+                  ring_ids_last[ring_id] = fill_points(no_missing_pts, ring_ids_last[ring_id], pt_c);
+                  ring_ids_first[ring_id].push_back(pt);
+                  ring_ids_last[ring_id].push_back(pt);
+                  count += 1;
+                  ROS_ERROR("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
+                }
+            }
+          }
+        }        
+        if (pt.return_type == 2 || pt.return_type == 4){ //only first ranges (2,4), add last ranges (3,5)
+          if(ring_ids_first[ring_id].empty()){ //No points stored in the ring yet.
+            // Check if any points are skipped in the beginning add blank or no points are skipped store the point #TODO
+            ring_ids_first[ring_id].push_back(pt);
+            count += 1;
+            if (pt.return_type == 2){
+              pt.return_type = 5;
+              ring_ids_last[ring_id].push_back(pt);
+              count += 1;   
+            }   
+            if (pt.return_type == 4){
+              pt.return_type = 3;
+              ring_ids_last[ring_id].push_back(pt);
+              count += 1;   
+            }                      
+            ROS_ERROR("First point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
+          }
+          else{ //ring row has already some points, check and add blank points, then add current point
+            int diff_azi = abs(ring_ids_first[ring_id].back().azimuth - pt_c.azimuth);
+            if (diff_azi == 0){
+              ROS_ERROR("Error: This can't happen!!");
+              return;
+            }
+            else{
+              int no_missing_pts = missing_pts_counter(diff_azi);
+              ROS_ERROR("missing point first: %d!!", no_missing_pts);
+              if (no_missing_pts == 0){ //just add the next point
+                ring_ids_first[ring_id].push_back(pt);
+                count += 1;
+              if (pt.return_type == 2){
+                pt.return_type = 5;
+                ring_ids_last[ring_id].push_back(pt);
+                count += 1;   
+              }   
+              if (pt.return_type == 4){
+                pt.return_type = 3;
+                ring_ids_last[ring_id].push_back(pt);
+                count += 1;   
+              }                     
+                ROS_ERROR("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
+              }
+              else{ // add null points to both first and last ranges
+                ring_ids_first[ring_id] = fill_points(no_missing_pts, ring_ids_first[ring_id], pt_c);
+                ring_ids_last[ring_id] = fill_points(no_missing_pts, ring_ids_last[ring_id], pt_c);
+                ring_ids_first[ring_id].push_back(pt);
+                count += 1;
+                if (pt.return_type == 2){
+                  pt.return_type = 5;
+                  ring_ids_last[ring_id].push_back(pt);
+                  count += 1;   
+                }   
+                if (pt.return_type == 4){
+                  pt.return_type = 3;
+                  ring_ids_last[ring_id].push_back(pt);
+                  count += 1;   
+                }                    
+                ROS_ERROR("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
+              }
+            }
+          }
+        }
+      }
     }
-    if (pt.return_type == -1){ //invalid even block point
-      pt.distance = -1; //we set distance as -1 for blank points
-      pt.intensity = -1;
-      pt.return_type = -1;    
-      pt.azimuth = -1;
-      ROS_ERROR("Blank point: %f", pt.azimuth);
-      ring_ids[ring_id].push_back(pt);
-    }
-	}  
-  //std::cout << "ring length: " << ring_ids[5].size() << std::endl;
+	}
+  ROS_ERROR("Ring length: %d", ring_ids_first[39].size());
+  ROS_ERROR("Ring length: %d", ring_ids_last[35].size());  
 
   pcl::PointCloud<PointT>::ConstPtr cloud_t = cloud_t_xyz;//downsample(cloud_t_orig);
   pcl::PointCloud<PointT>::ConstPtr cloud_no_rain = cloud_no_rain_orig;//downsample(cloud_no_rain_orig);

@@ -12,6 +12,8 @@ find_package(catkin REQUIRED COMPONENTS
         nav_msgs
         sensor_msgs
         tf_conversions 
+    	pandar_msgs
+	pandar_pointcloud
         )
 
 find_package(Boost REQUIRED)

@@ -23,7 +23,7 @@
 #include <sensor_msgs/CameraInfo.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <nav_msgs/Odometry.h>
-
+#include <pandar_pointcloud/point_types.hpp>
 
 #include <pcl/octree/octree_search.h>
 #include <pcl/search/search.h>
@@ -48,7 +48,17 @@
 #include <pcl/filters/approximate_voxel_grid.h>
 //#include <pcl/filters/statistical_outlier_removal.h>
 
+struct Range_point
+{
+  float distance;
+  float intensity;
+  int8_t return_type;
+  float azimuth;
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+} EIGEN_ALIGN16;
+
 typedef pcl::PointXYZI PointT;
+typedef pandar_pointcloud::PointXYZIRADT PointXYZIRADT;
 pcl::Filter<PointT>::Ptr outlier_removal_filter;
 Eigen::Matrix4f prev_trans; 
 std::string downsample_method;
@@ -57,6 +67,7 @@ pcl::Filter<PointT>::Ptr downsample_filter;
 bool use_distance_filter;
 double distance_near_thresh;
 double distance_far_thresh;
+
 
 pcl::PointCloud<PointT>::Ptr cloud_full_top(new pcl::PointCloud<PointT>());
 pcl::PointCloud<PointT>::Ptr cloud_full_left(new pcl::PointCloud<PointT>());
@@ -188,19 +199,120 @@ static Eigen::Isometry3d odom2isometry(const nav_msgs::OdometryConstPtr& odom_ms
   return isometry;
 }
 
+// Count number of missing points between azimuth scans
+int missing_pts_counter(int num){
+  if (num % 20 == 0 && num > 20)
+      return num / 40;
+  else if ((num - 1) % 20 == 0 && num-1 > 20)
+      return (num - 1) / 40;
+  else if ((num + 1) % 20 == 0 && num+1 > 20)
+      return (num + 1) / 40;
+  else
+      return 0;      
+}
+
+int count = 0;
+// fill points ring by ring, also add blank points when lidar points are skipped in a ring
+std::vector<Range_point> fill_points(int num, std::vector<Range_point> ring_pts, PointXYZIRADT pt_c){
+  if (num == 0){ //just add the next point
+    Range_point pt;
+    pt.distance = pt_c.distance;
+    pt.intensity = pt_c.intensity;
+    pt.return_type = pt_c.return_type;    
+    pt.azimuth = pt_c.azimuth;
+    ring_pts.push_back(pt);
+    count += 1;
+    ROS_ERROR("Next point: %f, count: %d!!", pt.azimuth, count);
+    return ring_pts;
+  }
+  else if (num == -1){ //add missing points as blank points
+    Range_point pt;
+    count += 1;
+    pt.distance = -1; //we set distance as -1 for blank points
+    pt.intensity = -1;
+    pt.return_type = -1;    
+    pt.azimuth = -1;
+    ROS_ERROR("Blank point: %f, count: %d!!", pt.azimuth, count);
+    ring_pts.push_back(pt);
+    return ring_pts;
+  }
+}
 
 void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds_top){
 
   pcl::PointCloud<PointT>::Ptr cloud_no_rain_orig (new pcl::PointCloud<PointT>);
-
+  pcl::PointCloud<PointT>::Ptr cloud_t_xyz (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<PointXYZIRADT>::Ptr cloud_t_orig(new pcl::PointCloud<PointXYZIRADT>);
   pcl::io::loadPCDFile<PointT> ("/home/nithilan/catkin_ws/src/pandar_rain_filter/no_rain_1_frame.pcd", *cloud_no_rain_orig);
 
-  pcl::PointCloud<PointT>::Ptr cloud_t_orig(new pcl::PointCloud<PointT>());
   int ind = 0;
   pcl::fromROSMsg(*clouds_top[ind], *cloud_t_orig);
+  pcl::fromROSMsg(*clouds_top[ind], *cloud_t_xyz);
+  
+  for (int i = 0; i < (*cloud_t_orig).size(); i++) //
+    {
+      if (cloud_t_orig->points[i].return_type == -1 ) // checking ring points
+      {
+        std::cout << "Azimuth negative: " << cloud_t_orig->points[i].azimuth << " Ret_type:" << static_cast<int16_t> (cloud_t_orig->points[i].return_type);
+        std::cout << " Ring id: " << cloud_t_orig->points[i].ring << std::endl;
+      }
+    }
+  std::vector<std::vector<Range_point>> ring_ids(40) ; // vector with 100 ints.
+	for (int i = 0; i < (*cloud_t_orig).size(); i++) //
+	{
+		// if (cloud_t_orig->points[i].return_type == -1 ) // checking ring points
+		// {
+		// 	std::cout << "Azimuth negative: " << cloud_t_orig->points[i].azimuth << " Ret_type:" << static_cast<int16_t> (cloud_t_orig->points[i].return_type) << std::endl;
+		// }
+    if (cloud_t_orig->points[i].ring == 5 ){
+      //std::cout << "Azimuth: " << cloud_t_orig->points[i].azimuth << " Ret_type:" << static_cast<int16_t> (cloud_t_orig->points[i].return_type) << std::endl;
+      PointXYZIRADT pt_c = cloud_t_orig->points[i];
+      Range_point pt;
+      pt.distance = pt_c.distance;
+      pt.intensity = pt_c.intensity;
+      pt.return_type = pt_c.return_type;    
+      pt.azimuth = pt_c.azimuth;
+      int ring_id = pt_c.ring;
+      if (pt.return_type == 3 || pt.return_type == 5 || pt.return_type == 6){ //Only considering even block valid points
+        ring_ids[ring_id].push_back(pt);
+        count += 1;
+        ROS_ERROR("Next point: %f, count: %d!!", pt.azimuth, count);
+      }
+      if (pt.return_type == -1){ //invalid even block point
+        pt.distance = -1; //we set distance as -1 for blank points
+        pt.intensity = -1;
+        pt.return_type = -1;    
+        pt.azimuth = -1;
+        ROS_ERROR("Blank point: %f, count: %d!!", pt.azimuth, count);
+        ring_ids[ring_id].push_back(pt);
+        count += 1;
+        ROS_ERROR("Came here!!");
+      }
+      // if (pt.return_type == 3 || pt.return_type == 5 || pt.return_type == 6){ //Only considering even block valid points
+      //   if(ring_ids[ring_id].empty()){ //No points stored in the ring yet.
+      //     // Check if any points are skipped in the beginning add blank or no points are skipped store the point #TODO
+      //     ring_ids[ring_id].push_back(pt);
+      //     count += 1;
+      //     ROS_ERROR("First point: %f, count: %d!!", pt.azimuth, count);
+      //   }
+      //   else{ //ring row has already some points, check and add blank points, then add current point
+      //     int diff_azi = abs(ring_ids[ring_id].back().azimuth - pt_c.azimuth);
+      //     if (diff_azi == 0){
+      //       ROS_ERROR("Error: This can't happen!!");
+      //       return;
+      //     }
+      //     else{
+      //       int no_missing_pts = missing_pts_counter(diff_azi);
+      //       ring_ids[ring_id] = fill_points(no_missing_pts, ring_ids[ring_id], pt_c);
+      //     }
+      //   }
+      // }
+    }
+	}
+  ROS_ERROR("Ring length: %d", ring_ids[5].size());
 
-  pcl::PointCloud<PointT>::ConstPtr cloud_t = downsample(cloud_t_orig);
-  pcl::PointCloud<PointT>::ConstPtr cloud_no_rain = downsample(cloud_no_rain_orig);
+  pcl::PointCloud<PointT>::ConstPtr cloud_t = cloud_t_xyz;//downsample(cloud_t_orig);
+  pcl::PointCloud<PointT>::ConstPtr cloud_no_rain = cloud_no_rain_orig;//downsample(cloud_no_rain_orig);
 
 	// Segment the ground and remove all points below ground
 
@@ -242,7 +354,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
 	pcl::PointIndices::Ptr inliers(new pcl::PointIndices());
 	for (int i = 0; i < (*cloud_no_rain).size(); i++)
 	{
-		if (cloud_no_rain->points[i].z < maxPt.z) // e.g. remove all pts below ground
+		if (cloud_no_rain->points[i].z < (minPt.z + 1.35)) // e.g. remove all pts below ground
 		{
 			inliers->indices.push_back(i);
 		}
@@ -256,9 +368,10 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
 
 	pcl::ExtractIndices<PointT> extract2;
 	pcl::PointIndices::Ptr inliers1(new pcl::PointIndices());
-	for (int i = 0; i < (*cloud_t).size(); i++)
+	for (int i = 0; i < (*cloud_t).size(); i++) //
 	{
-		if (cloud_t->points[i].z < maxPt.z) // e.g. remove all pts below zAvg
+    //std::cout << "ring num: " << cloud_t->points[i].intensity << std::endl;
+		if (cloud_t->points[i].z < (minPt.z + 1.35)) // e.g. remove all pts below zAvg
 		{
 			inliers1->indices.push_back(i);
 		}
@@ -283,17 +396,19 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
   sdiff.segment(*out);
   
   // Get point cloud difference
-  pcl::getPointCloudDifference<PointT> (*cloud_top_ngnd,*cloud_no_rain_ngnd,0.5f,tree,*out2);
-  std::cout << *out2; 
+  pcl::getPointCloudDifference<PointT> (*cloud_top_ngnd,*cloud_no_rain_ngnd,0.1f,tree,*out2);
+  //std::cout << *out2; 
+  std::cout << *cloud_t; 
+  std::cout << *cloud_no_rain; 
   //Visualiztion
   //Color handlers for red, green, blue and yellow color
-  pcl::visualization::PointCloudColorHandlerCustom<PointT> red(cloud_no_rain_ngnd,255,0,0);
-  pcl::visualization::PointCloudColorHandlerCustom<PointT> blue(cloud_top_ngnd,0,0,255);
+  pcl::visualization::PointCloudColorHandlerCustom<PointT> red(cloud_no_rain,255,0,0);
+  pcl::visualization::PointCloudColorHandlerCustom<PointT> blue(cloud_t,0,0,255);
   pcl::visualization::PointCloudColorHandlerCustom<PointT> green(out,0,255,0);
   pcl::visualization::PointCloudColorHandlerCustom<PointT> yellow(out2,255,255,0);    
   pcl::visualization::PCLVisualizer vis("3D View");
-  vis.addPointCloud(cloud_no_rain_ngnd,red,"src",0);
-  //vis.addPointCloud(cloud_top_ngnd,blue,"tgt",0);
+  //vis.addPointCloud(cloud_no_rain,red,"src",0);
+  vis.addPointCloud(cloud_t,blue,"tgt",0);
   //vis.addPointCloud(out,green,"out",0);
   vis.addPointCloud(out2,yellow,"out2",0);
   while(!vis.wasStopped())
@@ -353,7 +468,7 @@ int main(int argc, char **argv)
   //   std::cout << "outlier_removal: NONE" << std::endl;
   // }
 
-  private_node_handle.param<std::string>("file", file_path, "");
+  private_node_handle.param<std::string>("file_path", file_path, "");
   ROS_INFO("[%s] file_path: %s", ros::this_node::getName().c_str(), file_path.c_str());
 
   if (!file_exists(file_path))

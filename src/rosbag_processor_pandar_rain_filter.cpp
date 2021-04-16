@@ -32,6 +32,7 @@
 #include <pcl/conversions.h>
 #include <pcl/point_types.h>
 #include <pcl/io/pcd_io.h>
+#include <pcl/filters/crop_box.h>
 
 #include <pcl/common/common.h>
 #include <pcl/ModelCoefficients.h>
@@ -46,6 +47,8 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/passthrough.h>
 #include <pcl/filters/approximate_voxel_grid.h>
+
+#include "opencv2/highgui/highgui.hpp"
 //#include <pcl/filters/statistical_outlier_removal.h>
 
 struct Range_point
@@ -176,7 +179,7 @@ void writeStringToFile(const std::string& in_string, std::string path)
   std::ofstream outfile(path);
   if(!outfile.is_open())
   {
-    ROS_ERROR("Couldn't open 'output.txt'");
+    ROS_WARN("Couldn't open 'output.txt'");
   }
 
   outfile << in_string << std::endl;
@@ -222,7 +225,7 @@ std::vector<Range_point> fill_points(int num, std::vector<Range_point> ring_pts,
     pt.intensity = -1;
     pt.return_type = -1;    
     pt.azimuth = -1;
-    ROS_ERROR("Blank point: %f, count: %d!!", pt.azimuth, count);
+    ROS_WARN("Blank point: %f, count: %d!!", pt.azimuth, count);
     ring_pts.push_back(pt);
   }
   return ring_pts;
@@ -235,7 +238,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
   pcl::PointCloud<PointXYZIRADT>::Ptr cloud_t_orig(new pcl::PointCloud<PointXYZIRADT>);
   pcl::io::loadPCDFile<PointT> ("/home/nithilan/catkin_ws/src/pandar_rain_filter/no_rain_1_frame.pcd", *cloud_no_rain_orig);
 
-  int ind = 0;
+  int ind = 25;
   pcl::fromROSMsg(*clouds_top[ind], *cloud_t_orig);
   pcl::fromROSMsg(*clouds_top[ind], *cloud_t_xyz);
   
@@ -258,22 +261,22 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
             ring_ids_first[ring_id].push_back(pt);
             ring_ids_last[ring_id].push_back(pt);
             count += 1;
-            ROS_ERROR("First & Last point: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
+            ROS_WARN("First & Last point: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
           }
           else{ //ring row has already some points, check and add blank points, then add current point
             int diff_azi = abs(ring_ids_first[ring_id].back().azimuth - pt_c.azimuth);
-            if (diff_azi == 0){
-              ROS_ERROR("Error: This can't happen!!");
+            if (diff_azi <= 0){
+              ROS_WARN("Error: This can't happen!!");
               return;
             }
             else{
               int no_missing_pts = missing_pts_counter(diff_azi);
-              ROS_ERROR("missing point first+last: %d!!", no_missing_pts);
+              ROS_WARN("missing point first+last: %d!!", no_missing_pts);
                 if (no_missing_pts == 0){ //just add the next point
                   ring_ids_first[ring_id].push_back(pt);
                   ring_ids_last[ring_id].push_back(pt);
                   count += 1;
-                  ROS_ERROR("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
+                  ROS_WARN("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
                 }
                 else{ // add null points to both first and last ranges
                   ring_ids_first[ring_id] = fill_points(no_missing_pts, ring_ids_first[ring_id], pt_c);
@@ -281,7 +284,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
                   ring_ids_first[ring_id].push_back(pt);
                   ring_ids_last[ring_id].push_back(pt);
                   count += 1;
-                  ROS_ERROR("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
+                  ROS_WARN("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
                 }
             }
           }
@@ -301,17 +304,17 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
               ring_ids_last[ring_id].push_back(pt);
               count += 1;   
             }                      
-            ROS_ERROR("First point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
+            ROS_WARN("First point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
           }
           else{ //ring row has already some points, check and add blank points, then add current point
             int diff_azi = abs(ring_ids_first[ring_id].back().azimuth - pt_c.azimuth);
             if (diff_azi == 0){
-              ROS_ERROR("Error: This can't happen!!");
+              ROS_WARN("Error: This can't happen!!");
               return;
             }
             else{
               int no_missing_pts = missing_pts_counter(diff_azi);
-              ROS_ERROR("missing point first: %d!!", no_missing_pts);
+              ROS_WARN("missing point first: %d!!", no_missing_pts);
               if (no_missing_pts == 0){ //just add the next point
                 ring_ids_first[ring_id].push_back(pt);
                 count += 1;
@@ -325,7 +328,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
                 ring_ids_last[ring_id].push_back(pt);
                 count += 1;   
               }                     
-                ROS_ERROR("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
+                ROS_WARN("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
               }
               else{ // add null points to both first and last ranges
                 ring_ids_first[ring_id] = fill_points(no_missing_pts, ring_ids_first[ring_id], pt_c);
@@ -342,7 +345,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
                   ring_ids_last[ring_id].push_back(pt);
                   count += 1;   
                 }                    
-                ROS_ERROR("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
+                ROS_WARN("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
               }
             }
           }
@@ -350,8 +353,42 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
       }
     }
 	}
-  ROS_ERROR("Ring length: %d", ring_ids_first[39].size());
-  ROS_ERROR("Ring length: %d", ring_ids_last[35].size());  
+  //checking if all ring ranges are 1800 points
+  // Sometimes 1796, 1798 #Todo (check why??)
+
+  //Creating range images first and last
+  cv::Mat first_range_img(40, 1800, CV_32FC3, cv::Scalar(0.0,0.0,0.0));
+  cv::Mat last_range_img(40, 1800, CV_32FC3, cv::Scalar(0.0,0.0,0.0));
+  cv::Mat chans[3], chans1[3];
+  split(first_range_img, chans);
+  split(last_range_img, chans1);
+  for (int i = 0; i < 40; i++) {
+    //ROS_WARN("Ring length first: %d, ring id: %d", ring_ids_first[i].size(), i);
+    for (int j = 0; j < ring_ids_first[i].size(); j++) {
+        chans[0].row(i).col(j) = ring_ids_first[i].at(j).distance;
+        chans[1].row(i).col(j) = ring_ids_first[i].at(j).intensity;
+        chans[2].row(i).col(j) = static_cast<float_t>(ring_ids_first[i].at(j).return_type);
+        // std::cout << "distance: " << "i: " << i << "j: " << j << chans[0].row(i).col(j) << std::endl;
+        // std::cout << "intensity: " << "i: " << i << "j: " << j << chans[1].row(i).col(j) << std::endl;
+        // std::cout << "return_type: " << "i: " << i << "j: " << j << chans[2].row(i).col(j) << std::endl;
+    }
+    //ROS_WARN("Ring length last: %d, ring id: %d", ring_ids_last[i].size(), i);      
+    for (int j = 0; j < ring_ids_last[i].size(); j++) {
+        chans1[0].row(i).col(j) = ring_ids_last[i].at(j).distance;
+        chans1[1].row(i).col(j) = ring_ids_last[i].at(j).intensity;
+        chans1[2].row(i).col(j) = static_cast<float_t>(ring_ids_last[i].at(j).return_type);
+    }
+  }
+  cv::merge(chans, 3, first_range_img);
+  cv::merge(chans1, 3, last_range_img);
+
+  cv::Vec3f intensity = first_range_img.at<cv::Vec3f>(29, 1599);
+  std::cout << "value is original: " << "i: " << 29 << "j: " << 1599 << intensity << std::endl;
+
+  //Saving the range images
+  cv::imwrite("/home/nithilan/Downloads/pointcloud_processed/first_range_img.exr", first_range_img);
+  cv::imwrite("/home/nithilan/Downloads/pointcloud_processed/last_range_img.exr", last_range_img);
+
 
   pcl::PointCloud<PointT>::ConstPtr cloud_t = cloud_t_xyz;//downsample(cloud_t_orig);
   pcl::PointCloud<PointT>::ConstPtr cloud_no_rain = cloud_no_rain_orig;//downsample(cloud_no_rain_orig);
@@ -425,40 +462,57 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
 	extract2.setNegative (true);				// Extract the outliers
 	extract2.filter (*cloud_top_ngnd);		// original cloud without ground points and below points
 
+  // Segment and remove points outside the building
+  pcl::PointCloud<PointT>::Ptr cloud_top_boxed (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<PointT>::Ptr cloud_no_rain_boxed (new pcl::PointCloud<PointT>);
+  pcl::CropBox<PointT> boxFilter;
+  boxFilter.setMin(Eigen::Vector4f(-21.0, -30.0, -16, 1.0));
+  boxFilter.setMax(Eigen::Vector4f(56.0, 20.0, 16, 1.0));
+  boxFilter.setInputCloud(cloud_top_ngnd);
+  boxFilter.filter(*cloud_top_boxed);
+  boxFilter.setInputCloud(cloud_no_rain_ngnd);
+  boxFilter.filter(*cloud_no_rain_boxed);
 
   pcl::PointCloud<PointT>::Ptr out (new pcl::PointCloud<PointT>);
-  pcl::PointCloud<PointT>::Ptr out2 (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<PointT>::Ptr rain_points (new pcl::PointCloud<PointT>);
   //Segment differences
   pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT>);
   pcl::SegmentDifferences<PointT> sdiff;
-  sdiff.setInputCloud(cloud_top_ngnd);
-  sdiff.setTargetCloud(cloud_no_rain_ngnd);
+  sdiff.setInputCloud(cloud_top_boxed);
+  sdiff.setTargetCloud(cloud_no_rain_boxed);
   sdiff.setSearchMethod(tree);
   sdiff.setDistanceThreshold(0);
   sdiff.segment(*out);
   
   // Get point cloud difference
-  pcl::getPointCloudDifference<PointT> (*cloud_top_ngnd,*cloud_no_rain_ngnd,0.1f,tree,*out2);
-  //std::cout << *out2; 
+  pcl::getPointCloudDifference<PointT> (*cloud_top_boxed,*cloud_no_rain_boxed,0.1f,tree,*rain_points);
+  //std::cout << *rain_points; 
   std::cout << *cloud_t; 
   std::cout << *cloud_no_rain; 
-  //Visualiztion
+
+
+  //Visualization
   //Color handlers for red, green, blue and yellow color
   pcl::visualization::PointCloudColorHandlerCustom<PointT> red(cloud_no_rain,255,0,0);
   pcl::visualization::PointCloudColorHandlerCustom<PointT> blue(cloud_t,0,0,255);
   pcl::visualization::PointCloudColorHandlerCustom<PointT> green(out,0,255,0);
-  pcl::visualization::PointCloudColorHandlerCustom<PointT> yellow(out2,255,255,0);    
+  pcl::visualization::PointCloudColorHandlerCustom<PointT> yellow(rain_points,255,255,0);    
   pcl::visualization::PCLVisualizer vis("3D View");
-  //vis.addPointCloud(cloud_no_rain,red,"src",0);
-  vis.addPointCloud(cloud_t,blue,"tgt",0);
+  vis.addPointCloud(cloud_no_rain_boxed,red,"src",0);
+  vis.addPointCloud(cloud_top_boxed,blue,"tgt",0);
   //vis.addPointCloud(out,green,"out",0);
-  vis.addPointCloud(out2,yellow,"out2",0);
+  vis.addPointCloud(rain_points,yellow,"rain_points",0);
   while(!vis.wasStopped())
   {
           vis.spinOnce();
   }  
 }
 
+void check_images(){
+  cv::Mat input = cv::imread("/home/nithilan/Downloads/pointcloud_processed/first_range_img.exr", cv::IMREAD_ANYCOLOR | cv::IMREAD_ANYDEPTH);
+  cv::Vec3f intensity = input.at<cv::Vec3f>(29, 1599);
+  std::cout << "value is original: " << "i: " << 29 << "j: " << 1599 << intensity << std::endl;
+}
 
 int main(int argc, char **argv)
 {
@@ -515,7 +569,7 @@ int main(int argc, char **argv)
 
   if (!file_exists(file_path))
   {
-    ROS_ERROR("[%s] file_path: %s does not exist. Terminating.", ros::this_node::getName().c_str(), file_path.c_str());
+    ROS_WARN("[%s] file_path: %s does not exist. Terminating.", ros::this_node::getName().c_str(), file_path.c_str());
     return 1;
   }
 
@@ -563,6 +617,7 @@ int main(int argc, char **argv)
 
   process_pointclouds(cloud_msgs_top);
 
+  check_images();
   // pcl::visualization::PCLVisualizer::Ptr viewer_final (new pcl::visualization::PCLVisualizer ("3D Viewer pointcloud"));
   // viewer_final->setBackgroundColor (255, 255, 255);
   // // Coloring and visualizing target cloud (green). (0, 255, 0)

@@ -47,6 +47,7 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/passthrough.h>
 #include <pcl/filters/approximate_voxel_grid.h>
+#include <pcl/kdtree/kdtree_flann.h>
 
 #include "opencv2/highgui/highgui.hpp"
 //#include <pcl/filters/statistical_outlier_removal.h>
@@ -54,9 +55,11 @@
 struct Range_point
 {
   float distance;
+  int ring_id;
   float intensity;
   int8_t return_type;
   float azimuth;
+  int position;
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 } EIGEN_ALIGN16;
 
@@ -84,6 +87,15 @@ std::vector<sensor_msgs::PointCloud2::ConstPtr> cloud_msgs_right;
 pcl::PointCloud<PointT>::ConstPtr filtered_top (new pcl::PointCloud<PointT>);
 pcl::PointCloud<PointT>::ConstPtr filtered_left (new pcl::PointCloud<PointT>);
 pcl::PointCloud<PointT>::ConstPtr filtered_right (new pcl::PointCloud<PointT>);
+
+struct PointComparator
+{
+    bool operator()(const PointT & pt1, const PointT & pt2) const
+    {
+
+        return pt1.x != pt2.x || pt1.y != pt2.y || pt1.z != pt2.z;
+    }
+};
 
 pcl::PointCloud<PointT>::ConstPtr outlier_removal(const pcl::PointCloud<PointT>::ConstPtr& cloud) {
   if(!outlier_removal_filter) {
@@ -242,15 +254,21 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
   pcl::fromROSMsg(*clouds_top[ind], *cloud_t_orig);
   pcl::fromROSMsg(*clouds_top[ind], *cloud_t_xyz);
   
+  //create dictionary of points between PointT and Rangepoints for easy lookup
+  std::map<PointT,Range_point, PointComparator> dictionary_pt_cloud;
+  // Making range image 40 x 1800 size.
   std::vector<std::vector<Range_point>> ring_ids_first(40) ; 
   std::vector<std::vector<Range_point>> ring_ids_last(40) ;
 	for (int ring_id = 0; ring_id < 40 ; ring_id++)//
 	{
     for (int i = 0; i < (*cloud_t_orig).size(); i++) {
       //std::cout << "Azimuth: " << cloud_t_orig->points[i].azimuth << " Ret_type:" << static_cast<int16_t> (cloud_t_orig->points[i].return_type) << std::endl;
+      // Map pt cld points and range image index for making labels later on
+      PointT pt_trunc = cloud_t_xyz->points[i];
       PointXYZIRADT pt_c = cloud_t_orig->points[i];
       if (pt_c.ring == ring_id){
         Range_point pt;
+        pt.ring_id = ring_id;
         pt.distance = pt_c.distance;
         pt.intensity = pt_c.intensity;
         pt.return_type = pt_c.return_type;    
@@ -258,6 +276,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
         if (pt.return_type == 6){ //add first & last ranges
           if(ring_ids_first[ring_id].empty()){ //No points stored in the ring yet.
             // Check if any points are skipped in the beginning add blank or no points are skipped store the point #TODO
+            pt.position = 0; //first point in ring
             ring_ids_first[ring_id].push_back(pt);
             ring_ids_last[ring_id].push_back(pt);
             count += 1;
@@ -273,6 +292,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
               int no_missing_pts = missing_pts_counter(diff_azi);
               ROS_WARN("missing point first+last: %d!!", no_missing_pts);
                 if (no_missing_pts == 0){ //just add the next point
+                  pt.position = ring_ids_first[ring_id].size(); 
                   ring_ids_first[ring_id].push_back(pt);
                   ring_ids_last[ring_id].push_back(pt);
                   count += 1;
@@ -281,6 +301,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
                 else{ // add null points to both first and last ranges
                   ring_ids_first[ring_id] = fill_points(no_missing_pts, ring_ids_first[ring_id], pt_c);
                   ring_ids_last[ring_id] = fill_points(no_missing_pts, ring_ids_last[ring_id], pt_c);
+                  pt.position = ring_ids_first[ring_id].size(); 
                   ring_ids_first[ring_id].push_back(pt);
                   ring_ids_last[ring_id].push_back(pt);
                   count += 1;
@@ -288,10 +309,12 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
                 }
             }
           }
+          dictionary_pt_cloud.insert(std::pair<PointT, Range_point>(pt_trunc,pt));
         }        
-        if (pt.return_type == 2 || pt.return_type == 4){ //only first ranges (2,4), add last ranges (3,5)
+        else if (pt.return_type == 2 || pt.return_type == 4){ //only first ranges (2,4), add last ranges (3,5)
           if(ring_ids_first[ring_id].empty()){ //No points stored in the ring yet.
             // Check if any points are skipped in the beginning add blank or no points are skipped store the point #TODO
+            pt.position = 0; 
             ring_ids_first[ring_id].push_back(pt);
             count += 1;
             if (pt.return_type == 2){
@@ -316,23 +339,25 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
               int no_missing_pts = missing_pts_counter(diff_azi);
               ROS_WARN("missing point first: %d!!", no_missing_pts);
               if (no_missing_pts == 0){ //just add the next point
+                pt.position = ring_ids_first[ring_id].size(); 
                 ring_ids_first[ring_id].push_back(pt);
                 count += 1;
-              if (pt.return_type == 2){
-                pt.return_type = 5;
-                ring_ids_last[ring_id].push_back(pt);
-                count += 1;   
-              }   
-              if (pt.return_type == 4){
-                pt.return_type = 3;
-                ring_ids_last[ring_id].push_back(pt);
-                count += 1;   
-              }                     
+                if (pt.return_type == 2){
+                  pt.return_type = 5;
+                  ring_ids_last[ring_id].push_back(pt);
+                  count += 1;   
+                }   
+                if (pt.return_type == 4){
+                  pt.return_type = 3;
+                  ring_ids_last[ring_id].push_back(pt);
+                  count += 1;   
+                }                     
                 ROS_WARN("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
               }
               else{ // add null points to both first and last ranges
                 ring_ids_first[ring_id] = fill_points(no_missing_pts, ring_ids_first[ring_id], pt_c);
                 ring_ids_last[ring_id] = fill_points(no_missing_pts, ring_ids_last[ring_id], pt_c);
+                pt.position = ring_ids_first[ring_id].size(); 
                 ring_ids_first[ring_id].push_back(pt);
                 count += 1;
                 if (pt.return_type == 2){
@@ -349,9 +374,12 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
               }
             }
           }
+          dictionary_pt_cloud.insert(std::pair<PointT, Range_point>(pt_trunc,pt));
         }
       }
     }
+    ROS_WARN("No of dict points: %d", dictionary_pt_cloud.size());
+    ROS_WARN("Point cloud size: %d", (*cloud_t_orig).size());
 	}
   //checking if all ring ranges are 1800 points
   // Sometimes 1796, 1798 #Todo (check why??)
@@ -486,9 +514,55 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
   
   // Get point cloud difference
   pcl::getPointCloudDifference<PointT> (*cloud_top_boxed,*cloud_no_rain_boxed,0.1f,tree,*rain_points);
-  //std::cout << *rain_points; 
+  std::cout << *rain_points; 
   std::cout << *cloud_t; 
   std::cout << *cloud_no_rain; 
+
+  //Generate labels for rain and non rain points
+  cv::Mat labels(40, 1800, CV_8UC1, cv::Scalar(0,0));
+  for (int i = 0; i < (*rain_points).size(); i++) {
+    //std::cout << "Azimuth: " << cloud_t_orig->points[i].azimuth << " Ret_type:" << static_cast<int16_t> (cloud_t_orig->points[i].return_type) << std::endl;
+    PointT pt_c = rain_points->points[i];
+
+    //DEBUG check to see if the point is there in original pt cloud
+    pcl::KdTreeFLANN<PointT> kdtree;
+    kdtree.setInputCloud (cloud_t_xyz);
+    // K nearest neighbor search
+    int K = 3;
+
+    std::vector<int> pointIdxNKNSearch(K);
+    std::vector<float> pointNKNSquaredDistance(K);
+
+    std::cout << "K nearest neighbor search at (" << pt_c.x 
+              << " " << pt_c.y 
+              << " " << pt_c.z
+              << ") with K=" << K << std::endl;
+
+    if ( kdtree.nearestKSearch (pt_c, K, pointIdxNKNSearch, pointNKNSquaredDistance) > 0 )
+    {
+      for (std::size_t i = 0; i < pointIdxNKNSearch.size (); ++i)
+        std::cout << "    "  <<   (*cloud_t_xyz)[ pointIdxNKNSearch[i] ].x 
+                  << " " << (*cloud_t_xyz)[ pointIdxNKNSearch[i] ].y 
+                  << " " << (*cloud_t_xyz)[ pointIdxNKNSearch[i] ].z 
+                  << " (squared distance: " << pointNKNSquaredDistance[i] << ")" << std::endl;
+    }
+    //-----------------
+
+    std::map<PointT, Range_point>::iterator iter;
+    iter = dictionary_pt_cloud.find(pt_c); // Find function not working #Todo. SOmething to do with operator() ??
+    if (iter == dictionary_pt_cloud.end()){
+      ROS_ERROR("Point: %f, %f, %f, %f", pt_c.x, pt_c.y, pt_c.z, pt_c.intensity);
+      ROS_ERROR("point not found in original point cloud!!");
+      return;
+    }
+
+    // auto orig_point = iter->second;
+    // labels.col(orig_point.position).row(orig_point.ring_id) = 1;
+    // ROS_WARN("Point: %f, %f, %f, %f", pt_c.x, pt_c.y, pt_c.z, pt_c.intensity);
+    // ROS_WARN("index: %f, %d, %f", orig_point.position, orig_point.ring_id, orig_point.intensity);
+  }
+  //Saving the label images
+  cv::imwrite("/home/nithilan/Downloads/pointcloud_processed/label.png", labels);
 
 
   //Visualization
@@ -511,7 +585,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
 void check_images(){
   cv::Mat input = cv::imread("/home/nithilan/Downloads/pointcloud_processed/first_range_img.exr", cv::IMREAD_ANYCOLOR | cv::IMREAD_ANYDEPTH);
   cv::Vec3f intensity = input.at<cv::Vec3f>(29, 1599);
-  std::cout << "value is original: " << "i: " << 29 << "j: " << 1599 << intensity << std::endl;
+  std::cout << "value is checking: " << "i: " << 29 << "j: " << 1599 << intensity << std::endl;
 }
 
 int main(int argc, char **argv)

@@ -92,8 +92,9 @@ struct PointComparator
 {
     bool operator()(const PointT & pt1, const PointT & pt2) const
     {
-
-        return pt1.x != pt2.x || pt1.y != pt2.y || pt1.z != pt2.z;
+      if ( pt1.x != pt2.x ) return pt1.x  < pt2.x;
+      if ( pt1.y != pt2.y ) return pt1.y < pt2.y;
+      return pt1.z < pt2.z; 
     }
 };
 
@@ -214,6 +215,11 @@ static Eigen::Isometry3d odom2isometry(const nav_msgs::OdometryConstPtr& odom_ms
   return isometry;
 }
 
+bool cmpf(float A, float B, float epsilon = 0.05f)
+{
+    return (fabs(A - B) < epsilon);
+}
+
 // Count number of missing points between azimuth scans
 int missing_pts_counter(int num){
   if (num % 20 == 0 && num > 20)
@@ -237,7 +243,7 @@ std::vector<Range_point> fill_points(int num, std::vector<Range_point> ring_pts,
     pt.intensity = -1;
     pt.return_type = -1;    
     pt.azimuth = -1;
-    ROS_WARN("Blank point: %f, count: %d!!", pt.azimuth, count);
+    //ROS_WARN("Blank point: %f, count: %d!!", pt.azimuth, count);
     ring_pts.push_back(pt);
   }
   return ring_pts;
@@ -266,6 +272,9 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
       // Map pt cld points and range image index for making labels later on
       PointT pt_trunc = cloud_t_xyz->points[i];
       PointXYZIRADT pt_c = cloud_t_orig->points[i];
+      if (pt_trunc.x == 0.36091 && pt_trunc.y == 8.54688 && pt_trunc.z == -0.921612 && pt_trunc.intensity == 29.00){
+        ROS_WARN("Point found loop: %f, %f, %f, %f", pt_c.x, pt_c.y, pt_c.z, pt_c.intensity);
+      }
       if (pt_c.ring == ring_id){
         Range_point pt;
         pt.ring_id = ring_id;
@@ -280,7 +289,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
             ring_ids_first[ring_id].push_back(pt);
             ring_ids_last[ring_id].push_back(pt);
             count += 1;
-            ROS_WARN("First & Last point: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
+            //ROS_WARN("First & Last point: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
           }
           else{ //ring row has already some points, check and add blank points, then add current point
             int diff_azi = abs(ring_ids_first[ring_id].back().azimuth - pt_c.azimuth);
@@ -290,13 +299,13 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
             }
             else{
               int no_missing_pts = missing_pts_counter(diff_azi);
-              ROS_WARN("missing point first+last: %d!!", no_missing_pts);
+              //ROS_WARN("missing point first+last: %d!!", no_missing_pts);
                 if (no_missing_pts == 0){ //just add the next point
                   pt.position = ring_ids_first[ring_id].size(); 
                   ring_ids_first[ring_id].push_back(pt);
                   ring_ids_last[ring_id].push_back(pt);
                   count += 1;
-                  ROS_WARN("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
+                  //ROS_WARN("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
                 }
                 else{ // add null points to both first and last ranges
                   ring_ids_first[ring_id] = fill_points(no_missing_pts, ring_ids_first[ring_id], pt_c);
@@ -305,7 +314,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
                   ring_ids_first[ring_id].push_back(pt);
                   ring_ids_last[ring_id].push_back(pt);
                   count += 1;
-                  ROS_WARN("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
+                  //ROS_WARN("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
                 }
             }
           }
@@ -327,7 +336,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
               ring_ids_last[ring_id].push_back(pt);
               count += 1;   
             }                      
-            ROS_WARN("First point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
+            //ROS_WARN("First point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
           }
           else{ //ring row has already some points, check and add blank points, then add current point
             int diff_azi = abs(ring_ids_first[ring_id].back().azimuth - pt_c.azimuth);
@@ -337,7 +346,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
             }
             else{
               int no_missing_pts = missing_pts_counter(diff_azi);
-              ROS_WARN("missing point first: %d!!", no_missing_pts);
+             // ROS_WARN("missing point first: %d!!", no_missing_pts);
               if (no_missing_pts == 0){ //just add the next point
                 pt.position = ring_ids_first[ring_id].size(); 
                 ring_ids_first[ring_id].push_back(pt);
@@ -352,7 +361,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
                   ring_ids_last[ring_id].push_back(pt);
                   count += 1;   
                 }                     
-                ROS_WARN("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
+                //ROS_WARN("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
               }
               else{ // add null points to both first and last ranges
                 ring_ids_first[ring_id] = fill_points(no_missing_pts, ring_ids_first[ring_id], pt_c);
@@ -370,7 +379,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
                   ring_ids_last[ring_id].push_back(pt);
                   count += 1;   
                 }                    
-                ROS_WARN("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
+                //ROS_WARN("Next point first+last: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
               }
             }
           }
@@ -378,8 +387,8 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
         }
       }
     }
-    ROS_WARN("No of dict points: %d", dictionary_pt_cloud.size());
-    ROS_WARN("Point cloud size: %d", (*cloud_t_orig).size());
+    // ROS_WARN("No of dict points: %d", dictionary_pt_cloud.size());
+    // ROS_WARN("Point cloud size: %d", (*cloud_t_orig).size());
 	}
   //checking if all ring ranges are 1800 points
   // Sometimes 1796, 1798 #Todo (check why??)
@@ -528,7 +537,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
     pcl::KdTreeFLANN<PointT> kdtree;
     kdtree.setInputCloud (cloud_t_xyz);
     // K nearest neighbor search
-    int K = 3;
+    int K = 1;
 
     std::vector<int> pointIdxNKNSearch(K);
     std::vector<float> pointNKNSquaredDistance(K);
@@ -544,22 +553,32 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
         std::cout << "    "  <<   (*cloud_t_xyz)[ pointIdxNKNSearch[i] ].x 
                   << " " << (*cloud_t_xyz)[ pointIdxNKNSearch[i] ].y 
                   << " " << (*cloud_t_xyz)[ pointIdxNKNSearch[i] ].z 
+                  << " " << (*cloud_t_xyz)[ pointIdxNKNSearch[i] ].intensity                   
                   << " (squared distance: " << pointNKNSquaredDistance[i] << ")" << std::endl;
     }
     //-----------------
 
-    std::map<PointT, Range_point>::iterator iter;
+    std::map<PointT, Range_point>::iterator iter, loop_iter;
     iter = dictionary_pt_cloud.find(pt_c); // Find function not working #Todo. SOmething to do with operator() ??
     if (iter == dictionary_pt_cloud.end()){
       ROS_ERROR("Point: %f, %f, %f, %f", pt_c.x, pt_c.y, pt_c.z, pt_c.intensity);
       ROS_ERROR("point not found in original point cloud!!");
+      //check with for loop over the dictionary
+      for (loop_iter = dictionary_pt_cloud.begin(); loop_iter != dictionary_pt_cloud.end(); loop_iter++){
+        if (cmpf(pt_c.x,loop_iter->first.x) && cmpf(pt_c.y, loop_iter->first.y)){
+          ROS_WARN("Point found loop dict: %f, %f, %f, %f", pt_c.x, pt_c.y, pt_c.z, pt_c.intensity);
+          break;
+        }
+      } 
+      ROS_ERROR("point not found in loop original point cloud!!");
       return;
     }
-
+    else{
     // auto orig_point = iter->second;
     // labels.col(orig_point.position).row(orig_point.ring_id) = 1;
-    // ROS_WARN("Point: %f, %f, %f, %f", pt_c.x, pt_c.y, pt_c.z, pt_c.intensity);
+     //ROS_WARN("Point found: %f, %f, %f, %f", pt_c.x, pt_c.y, pt_c.z, pt_c.intensity);
     // ROS_WARN("index: %f, %d, %f", orig_point.position, orig_point.ring_id, orig_point.intensity);
+    }
   }
   //Saving the label images
   cv::imwrite("/home/nithilan/Downloads/pointcloud_processed/label.png", labels);

@@ -227,15 +227,15 @@ std::vector<Range_point> fill_points(int num, std::vector<Range_point> ring_pts,
   for (int i = 0; i < num ; i++){
     Range_point pt;
     count += 1;
-    pt.distance = 0; //we set distance as -1 for blank points
+    pt.distance = 0; //we set distance as 0 for null points
     pt.intensity = 0;
-    pt.return_type = -1;    
+    pt.return_type = 0;    
     pt.azimuth = -1;
     pt.rain_label = -1;
     pt.x = -1;
     pt.y = -1;
     pt.z = -1;
-    //ROS_WARN("Blank point: %f, count: %d!!", pt.azimuth, count);
+    //ROS_WARN("Null point: %f, count: %d!!", pt.azimuth, count);
     ring_pts.push_back(pt);
   }
   return ring_pts;
@@ -350,7 +350,7 @@ void make_range_vectors(pcl::PointCloud<PointXYZIRADT>::Ptr cloud_t_orig, pcl::P
           else{
             pt.rain_label = 0;
           }
-          if (pt.return_type == 6){ //add first & last ranges
+          if (pt.return_type == 7){ //add first & last ranges
             if(ring_ids_first[ring_id].empty()){ //No points stored in the ring yet.
               // Check if any points are skipped in the beginning add blank or no points are skipped store the point #TODO
               pt.position = 0; //first point in ring
@@ -358,14 +358,7 @@ void make_range_vectors(pcl::PointCloud<PointXYZIRADT>::Ptr cloud_t_orig, pcl::P
               count += 1;
               //ROS_WARN("First point first range: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
             }
-            else if(ring_ids_last[ring_id].empty()){ //No points stored in the ring yet.
-              // Check if any points are skipped in the beginning add blank or no points are skipped store the point #TODO
-              pt.position = 0; //first point in ring
-              ring_ids_last[ring_id].push_back(pt);
-              count += 1;
-              //ROS_WARN("First point last range: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
-            }            
-            else{ //ring row has already some points, check and add blank points, then add current point
+            else{
               int diff_azi_first = abs(ring_ids_first[ring_id].back().azimuth - pt_c.azimuth);
               if (diff_azi_first <= 0){
                 ROS_WARN("Error: This can't happen!!");
@@ -388,6 +381,16 @@ void make_range_vectors(pcl::PointCloud<PointXYZIRADT>::Ptr cloud_t_orig, pcl::P
                     //ROS_WARN("Null: %d, next point first: %f, count: %d, ret_type: %d, ring_id: %d !!",no_missing_pts, pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
                   }
               }
+            }
+            if(ring_ids_last[ring_id].empty()){ //No points stored in the ring yet.
+              // Check if any points are skipped in the beginning add blank or no points are skipped store the point #TODO
+              pt.position = 0; //first point in ring
+              ring_ids_last[ring_id].push_back(pt);
+              count += 1;
+              //ROS_WARN("First point last range: %f, count: %d, ret_type: %d, ring_id: %d !!", pt.azimuth, count, static_cast<int16_t>(pt.return_type), ring_id);
+            }            
+            else { //ring row has already some points, check and add blank points, then add current point
+              
               int diff_azi_last = abs(ring_ids_last[ring_id].back().azimuth - pt_c.azimuth);
               if (diff_azi_last <= 0){
                 ROS_WARN("Error: This can't happen!!");
@@ -412,7 +415,7 @@ void make_range_vectors(pcl::PointCloud<PointXYZIRADT>::Ptr cloud_t_orig, pcl::P
               }
             }
           }        
-          else if (pt.return_type == 2 || pt.return_type == 4){ //only first ranges (2,4)
+          else if (pt.return_type == 3 || pt.return_type == 5){ //only first ranges (3,5)
             if(ring_ids_first[ring_id].empty()){ //No points stored in the ring yet.
               // Check if any points are skipped in the beginning add blank or no points are skipped store the point #TODO
               pt.position = 0; 
@@ -445,7 +448,7 @@ void make_range_vectors(pcl::PointCloud<PointXYZIRADT>::Ptr cloud_t_orig, pcl::P
               }
             }
           }
-          else if (pt.return_type == 3 || pt.return_type == 5){ //only add last ranges (3,5)
+          else if (pt.return_type == 4 || pt.return_type == 6){ //only add last ranges (4,6)
             if(ring_ids_last[ring_id].empty()){ //No points stored in the ring yet.
               // Check if any points are skipped in the beginning add blank or no points are skipped store the point #TODO
               pt.position = 0; 
@@ -519,7 +522,7 @@ void point_cloud_image_checker(cv::Mat point_cloud_img_first, cv::Mat point_clou
   for (int i = 0; i < 40; i++) {
     //ROS_WARN("Ring length first: %d, ring id: %d", ring_ids_first[i].size(), i);
     for (int j = 0; j < static_cast<int>(ring_ids_first[i].size()); j++) {
-      if (ring_ids_first[i].at(j).return_type != -1 ){
+      if (ring_ids_first[i].at(j).return_type != 0 ){
         chans[0].row(i).col(j) = ring_ids_first[i].at(j).x;
         chans[1].row(i).col(j) = ring_ids_first[i].at(j).y;
         chans[2].row(i).col(j) = ring_ids_first[i].at(j).z;
@@ -527,7 +530,7 @@ void point_cloud_image_checker(cv::Mat point_cloud_img_first, cv::Mat point_clou
     }
     //ROS_WARN("Ring length last: %d, ring id: %d", ring_ids_last[i].size(), i);      
     for (int j = 0; j < static_cast<int>(ring_ids_last[i].size()); j++) {
-      if (ring_ids_last[i].at(j).return_type != -1 ){      
+      if (ring_ids_last[i].at(j).return_type != 0 ){      
         chans1[0].row(i).col(j) = ring_ids_last[i].at(j).x;
         chans1[1].row(i).col(j) = ring_ids_last[i].at(j).y;
         chans1[2].row(i).col(j) = ring_ids_last[i].at(j).z;
@@ -795,9 +798,6 @@ int main(int argc, char **argv)
   }
 
   init_directories(output_path_);
-
-  auto start_time = std::chrono::system_clock::now();
-  std::cout << "Starting at: " << get_string_time(start_time) << std::endl;
 
   rosbag::Bag input_bag;
 

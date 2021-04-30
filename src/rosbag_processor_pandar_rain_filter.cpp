@@ -483,18 +483,16 @@ void make_range_vectors(pcl::PointCloud<PointXYZIRADT>::Ptr cloud_t_orig, pcl::P
     }
 }
 
-void range_image_generator(cv::Mat first_range_img, cv::Mat last_range_img, cv::Mat labels,
-                          std::vector<std::vector<Range_point>> &ring_ids_first,
+void range_image_generator(cv::Mat first_range_img, cv::Mat first_intensity_img, cv::Mat first_ret_type_img, 
+                          cv::Mat last_range_img, cv::Mat last_intensity_img, cv::Mat last_ret_type_img, 
+                          cv::Mat labels, std::vector<std::vector<Range_point>> &ring_ids_first,
                           std::vector<std::vector<Range_point>> &ring_ids_last){
-  cv::Mat chans[3], chans1[3];
-  split(first_range_img, chans);
-  split(last_range_img, chans1);
   for (int i = 0; i < 40; i++) {
     //ROS_WARN("Ring length first: %d, ring id: %d", ring_ids_first[i].size(), i);
     for (int j = 0; j < static_cast<int>(ring_ids_first[i].size()); j++) {
-        chans[0].row(i).col(j) = ring_ids_first[i].at(j).distance;
-        chans[1].row(i).col(j) = ring_ids_first[i].at(j).intensity;
-        chans[2].row(i).col(j) = static_cast<float_t>(ring_ids_first[i].at(j).return_type);
+        first_range_img.row(i).col(j) = static_cast<int16_t>(ring_ids_first[i].at(j).distance*256.0);
+        first_intensity_img.row(i).col(j) = static_cast<int8_t>(ring_ids_first[i].at(j).intensity);
+        first_ret_type_img.row(i).col(j) = static_cast<int8_t>(ring_ids_first[i].at(j).return_type);
 
         if (ring_ids_first[i].at(j).rain_label == 1)
           labels.row(i).col(j) = 1;
@@ -504,16 +502,13 @@ void range_image_generator(cv::Mat first_range_img, cv::Mat last_range_img, cv::
     }
     //ROS_WARN("Ring length last: %d, ring id: %d", ring_ids_last[i].size(), i);     
     for (int j = 0; j < static_cast<int>(ring_ids_last[i].size()); j++) {
-        chans1[0].row(i).col(j) = ring_ids_last[i].at(j).distance;
-        chans1[1].row(i).col(j) = ring_ids_last[i].at(j).intensity;
-        chans1[2].row(i).col(j) = static_cast<float_t>(ring_ids_last[i].at(j).return_type);
+        last_range_img.row(i).col(j) = static_cast<int16_t>(ring_ids_last[i].at(j).distance*256.0);
+        last_intensity_img.row(i).col(j) = static_cast<int8_t>(ring_ids_last[i].at(j).intensity);
+        last_ret_type_img.row(i).col(j) = static_cast<int8_t>(ring_ids_last[i].at(j).return_type);
     }
   }
 
 //  std::cout << "No of labels: " << cv::countNonZero(labels) << std::endl;
-
-  cv::merge(chans, 3, first_range_img);
-  cv::merge(chans1, 3, last_range_img);
 }
 
 void point_cloud_image_checker(cv::Mat point_cloud_img_first, cv::Mat point_cloud_img_last, std::vector<std::vector<Range_point>> &ring_ids_first, 
@@ -580,6 +575,50 @@ void reconstruct_point_cloud(pcl::PointCloud<PointT>::Ptr reconstruct_pt_cloud, 
   }  
 }
 
+void save_images(const std::string output_path, int ind, std::vector<std::vector<Range_point>> &ring_ids_first,
+                std::vector<std::vector<Range_point>> &ring_ids_last){
+    //Generate labels for rain and non rain points
+    cv::Mat labels(40, 1800, CV_8UC1, cv::Scalar(0,0));
+    //Creating range images first and last
+    cv::Mat first_range_img(40, 1800, CV_16UC1, cv::Scalar(0,0));
+    cv::Mat first_intensity_img(40, 1800, CV_8UC1, cv::Scalar(0,0));
+    cv::Mat first_ret_type_img(40, 1800, CV_8UC1, cv::Scalar(0,0));
+    cv::Mat last_range_img(40, 1800, CV_16UC1, cv::Scalar(0,0));
+    cv::Mat last_intensity_img(40, 1800, CV_8UC1, cv::Scalar(0,0));
+    cv::Mat last_ret_type_img(40, 1800, CV_8UC1, cv::Scalar(0,0));
+    range_image_generator(first_range_img, first_intensity_img, first_ret_type_img, last_range_img, 
+                      last_intensity_img, last_ret_type_img, labels, ring_ids_first, ring_ids_last);
+
+    std::stringstream first_range_name, first_intensity_name, first_ret_type_name;
+    std::stringstream last_range_name, last_intensity_name, last_ret_type_name, label_name;
+    std::string ss1 = "/range_images/first_range_img_";
+    std::string ss2 = "/range_images/first_intensity_img_";
+    std::string ss3 = "/range_images/first_ret_type_img_";        
+    std::string ss4 = "/range_images/last_range_img_";        
+    std::string ss5 = "/range_images/last_intensity_img_";        
+    std::string ss6 = "/range_images/last_ret_type_img_";   
+    std::string ss7 = "/labels/label_";    
+    std::string type1 = ".png";    
+    first_range_name<<output_path<<ss1<<(ind)<<type1;
+    first_intensity_name<<output_path<<ss2<<(ind)<<type1;
+    first_ret_type_name<<output_path<<ss3<<(ind)<<type1;
+    last_range_name<<output_path<<ss4<<(ind)<<type1;
+    last_intensity_name<<output_path<<ss5<<(ind)<<type1;
+    last_ret_type_name<<output_path<<ss6<<(ind)<<type1;
+    label_name<<output_path<<ss7<<(ind)<<type1;    
+
+    //Saving the range images
+    cv::imwrite(first_range_name.str(), first_range_img);
+    cv::imwrite(first_intensity_name.str(), first_intensity_img);
+    cv::imwrite(first_ret_type_name.str(), first_ret_type_img);
+    cv::imwrite(last_range_name.str(), last_range_img);
+    cv::imwrite(last_intensity_name.str(), last_intensity_img);
+    cv::imwrite(last_ret_type_name.str(), last_ret_type_img);
+    
+    //Saving the label images
+    cv::imwrite(label_name.str(), labels);
+}
+
 void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds_top, const std::string output_path, const std::string no_rain_pcd_path){
 
   pcl::PointCloud<PointT>::Ptr cloud_no_rain_orig (new pcl::PointCloud<PointT>);
@@ -631,46 +670,24 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
     //checking if all ring ranges are 1800 points
     // Sometimes 1796, 1798 #Todo (check why??)
 
-    //Generate labels for rain and non rain points
-    cv::Mat labels(40, 1800, CV_8UC1, cv::Scalar(0,0));
     //Creating range images first and last
-    cv::Mat first_range_img(40, 1800, CV_32FC3, cv::Scalar(0.0,0.0,0.0));
-    cv::Mat last_range_img(40, 1800, CV_32FC3, cv::Scalar(0.0,0.0,0.0));
-    range_image_generator(first_range_img, last_range_img, labels, ring_ids_first, ring_ids_last);
-
+    save_images(output_path, ind, ring_ids_first, ring_ids_last);
+    
     //Check if the range image matches the original point cloud
     cv::Mat point_cloud_img_first(40, 1800, CV_32FC3, cv::Scalar(0.0,0.0,0.0));
     cv::Mat point_cloud_img_last(40, 1800, CV_32FC3, cv::Scalar(0.0,0.0,0.0));    
     point_cloud_image_checker(point_cloud_img_first, point_cloud_img_last, ring_ids_first, ring_ids_last);
 
-    // cv::Vec3f intensity = first_range_img.at<cv::Vec3f>(29, 1599);
-    // std::cout << "value is original: " << "i: " << 29 << "j: " << 1599 << intensity << std::endl;
-
-    std::stringstream first_range_name, last_range_name, point_cloud_first_name, point_cloud_last_name, label_name;
-    std::string ss1 = "/range_images/first_range_img_";
-    std::string ss2 = "/range_images/last_range_img_";   
-    std::string ss3 = "/point_cloud_images/point_cloud_first_img_";   
-    std::string ss4 = "/point_cloud_images/point_cloud_last_img_";   
-    std::string ss5 = "/labels/label_";    
+    std::stringstream point_cloud_first_name, point_cloud_last_name;
+    std::string ss4 = "/point_cloud_images/point_cloud_first_img_";   
+    std::string ss5 = "/point_cloud_images/point_cloud_last_img_";   
     std::string type1 = ".exr";
-    std::string type2 = ".png";    
-    first_range_name<<output_path<<ss1<<(ind)<<type1;
-    last_range_name<<output_path<<ss2<<(ind)<<type1;
-    point_cloud_first_name<<output_path<<ss3<<(ind)<<type1;
-    point_cloud_last_name<<output_path<<ss4<<(ind)<<type1;
-    label_name<<output_path<<ss5<<(ind)<<type2;    
-
-    //Saving the range images
-    cv::imwrite(first_range_name.str(), first_range_img);
-    cv::imwrite(last_range_name.str(), last_range_img);
-
+    point_cloud_first_name<<output_path<<ss4<<(ind)<<type1;
+    point_cloud_last_name<<output_path<<ss5<<(ind)<<type1;
     //Saving point cloud images
     cv::imwrite(point_cloud_first_name.str(), point_cloud_img_first);
     cv::imwrite(point_cloud_last_name.str(), point_cloud_img_last);
-    
-    //Saving the label images
-    cv::imwrite(label_name.str(), labels*255);
-    
+
     //Reconstruct point cloud from image
     pcl::PointCloud<PointT>::Ptr reconstruct_pt_cloud (new pcl::PointCloud<PointT>);
     reconstruct_point_cloud(reconstruct_pt_cloud, point_cloud_first_name.str(), point_cloud_last_name.str());    
@@ -700,12 +717,6 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
     //         vis.spinOnce();
     // }  
   }
-}
-
-void check_images(){
-  cv::Mat input = cv::imread("/home/nithilan/Downloads/pointcloud_processed/range_images/first_range_img_0.exr", cv::IMREAD_ANYCOLOR | cv::IMREAD_ANYDEPTH);
-  cv::Vec3f intensity = input.at<cv::Vec3f>(29, 1599);
-  std::cout << "value is checking: " << "i: " << 29 << "j: " << 1599 << intensity << std::endl;
 }
 
 int main(int argc, char **argv)
@@ -822,22 +833,5 @@ int main(int argc, char **argv)
 
   process_pointclouds(cloud_msgs_top, output_path_, no_rain_pcd_path_);
   std::cout << "Range and Label images generated! " << std::endl;
-  // check_images();
-  // pcl::visualization::PCLVisualizer::Ptr viewer_final (new pcl::visualization::PCLVisualizer ("3D Viewer pointcloud"));
-  // viewer_final->setBackgroundColor (255, 255, 255);
-  // // Coloring and visualizing target cloud (green). (0, 255, 0)
-  // pcl::visualization::PointCloudColorHandlerCustom<PointT>
-  // target_color (cloud_t, 0, 0, 205);
-  // viewer_final->addPointCloud<PointT> (cloud_t, target_color, "cloud full");
-  // viewer_final->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE,
-  //                                                 1, "cloud full");
-  // viewer_final->addCoordinateSystem (1.0, "global");
-  // viewer_final->initCameraParameters ();
-  
-  // while (!viewer_final->wasStopped ())
-  // {
-  //   viewer_final->spinOnce (100);
-  // }
-  // ros::spin();
   return 0;
 }

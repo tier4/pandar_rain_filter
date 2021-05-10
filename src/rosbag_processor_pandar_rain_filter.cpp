@@ -224,19 +224,82 @@ int missing_pts_counter(int num){
 // fill points ring by ring, also add blank points when lidar points are skipped in a ring
 std::vector<Range_point> fill_points(int num, std::vector<Range_point> ring_pts, PointXYZIRADT pt_c){
   //add missing points as blank points
+  float azimuth = ring_pts.back().azimuth+20;
   for (int i = 0; i < num ; i++){
     Range_point pt;
     count += 1;
     pt.distance = 0; //we set distance as 0 for null points
     pt.intensity = 0;
     pt.return_type = 0;    
-    pt.azimuth = -1;
+    pt.azimuth = azimuth;
     pt.rain_label = -1;
     pt.x = -1;
     pt.y = -1;
     pt.z = -1;
     //ROS_WARN("Null point: %f, count: %d!!", pt.azimuth, count);
     ring_pts.push_back(pt);
+    azimuth += 20;
+  }
+  return ring_pts;
+}
+
+std::vector<Range_point>  fill_last_points(std::vector<Range_point> ring_pts){
+  int len = 1800 - ring_pts.size();
+  Range_point pt;
+  pt.distance = 0; //we set distance as 0 for null points
+  pt.intensity = 0;
+  pt.return_type = 0;
+  pt.rain_label = -1;
+  pt.x = -1;
+  pt.y = -1;
+  pt.z = -1;
+  int first_azimuth = ring_pts[0].azimuth;
+  int azimuth = first_azimuth - 20;
+  for (int i = 0; i < len ; i++){
+    pt.azimuth = azimuth;
+    ring_pts.push_back(pt);
+    azimuth -= 20;
+  } 
+  return ring_pts;
+}
+
+bool IsLessThanZero (Range_point i) { return (i.azimuth < 0); }
+
+struct less_than_key
+{
+    inline bool operator() (const Range_point& pt1, const Range_point& pt2)
+    {
+        return (pt1.azimuth < pt2.azimuth);
+    }
+};
+
+std::vector<Range_point>  sort_points(std::vector<Range_point> ring_pts){
+  int refElem = 0;
+  auto i = min_element(begin(ring_pts), end(ring_pts), [=] (Range_point x, Range_point y)
+  {
+      return abs(x.azimuth - refElem) < abs(y.azimuth - refElem);
+  });
+
+  auto index = std::distance(begin(ring_pts), i); 
+  std::rotate(ring_pts.begin(),
+          ring_pts.begin() +index, // this will be the new first element
+          ring_pts.end());
+  int neg_points = std::count_if(ring_pts.begin(), ring_pts.end(), IsLessThanZero);
+  if (neg_points <= 0){ // no negative points sort in increasing order
+    std::sort(ring_pts.begin(), ring_pts.end(), less_than_key());
+  }
+  return ring_pts;
+}
+
+bool IsGreater (Range_point i) { return (i.azimuth >= 35980); }
+
+std::vector<Range_point> shift_points(std::vector<Range_point> ring_pts){
+  int out_of_range_points = std::count_if(ring_pts.begin(), ring_pts.end(), IsGreater);
+  if (out_of_range_points > 0){ //shift azimuths greater than 36000
+    for (int j = 0; j < static_cast<int>(ring_pts.size()); j++) {
+      if ((ring_pts[j].azimuth) >= 35980)
+        ring_pts[j].azimuth -= 36000;
+    }
   }
   return ring_pts;
 }
@@ -335,6 +398,7 @@ void make_range_vectors(pcl::PointCloud<PointXYZIRADT>::Ptr cloud_t_orig, pcl::P
         PointXYZIRADT pt_c = cloud_t_orig->points[i];
         PointT pt_trunc = cloud_t_xyz->points[i];
         if (pt_c.ring == ring_id){
+          //std::cout << "Azimuth: " << cloud_t_orig->points[i].azimuth << " Ret_type:" << static_cast<int16_t> (cloud_t_orig->points[i].return_type) << std::endl;
           Range_point pt;
           pt.ring_id = ring_id;
           pt.distance = pt_c.distance;
@@ -483,6 +547,21 @@ void make_range_vectors(pcl::PointCloud<PointXYZIRADT>::Ptr cloud_t_orig, pcl::P
           }       
         }
       }
+      // Azimuths greater than 36000 will be shifted to 0
+      ring_ids_first[ring_id] = shift_points(ring_ids_first[ring_id]);
+      ring_ids_last[ring_id] = shift_points(ring_ids_last[ring_id]);
+
+      // Fill last points with missing Azimuths
+      if (ring_ids_first[ring_id].size() < 1800){
+        ring_ids_first[ring_id] = fill_last_points(ring_ids_first[ring_id]);
+      }
+      if (ring_ids_last[ring_id].size() < 1800){
+        ring_ids_last[ring_id] = fill_last_points(ring_ids_last[ring_id]);
+      }   
+
+      //Sort vectors so that closest to 0 azimuth is first value   
+      ring_ids_first[ring_id] = sort_points(ring_ids_first[ring_id]);
+      ring_ids_last[ring_id] = sort_points(ring_ids_last[ring_id]);
     }
 }
 
@@ -601,13 +680,14 @@ void save_images(const std::string output_path, int ind, std::vector<std::vector
     std::string ss5 = "/range_images/last_intensity_img_";        
     std::string ss6 = "/range_images/last_ret_type_img_";   
     std::string ss7 = "/labels/label_";    
-    std::string type1 = ".png";    
+    std::string type1 = ".png";       
+    std::string type2 = ".exr";    
     first_range_name<<output_path<<ss1<<(ind)<<type1;
     first_intensity_name<<output_path<<ss2<<(ind)<<type1;
-    first_ret_type_name<<output_path<<ss3<<(ind)<<type1;
+    first_ret_type_name<<output_path<<ss3<<(ind)<<type2;
     last_range_name<<output_path<<ss4<<(ind)<<type1;
     last_intensity_name<<output_path<<ss5<<(ind)<<type1;
-    last_ret_type_name<<output_path<<ss6<<(ind)<<type1;
+    last_ret_type_name<<output_path<<ss6<<(ind)<<type2;
     label_name<<output_path<<ss7<<(ind)<<type1;    
 
     //Saving the range images
@@ -628,8 +708,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
   pcl::PointCloud<PointT>::Ptr cloud_t_xyz (new pcl::PointCloud<PointT>);
   pcl::PointCloud<PointXYZIRADT>::Ptr cloud_t_orig(new pcl::PointCloud<PointXYZIRADT>);
   pcl::io::loadPCDFile<PointT> (no_rain_pcd_path, *cloud_no_rain_orig);
-
-  for (std::vector<int>::size_type ind = 0; ind != clouds_top.size(); ind++) //
+  for (std::vector<int>::size_type ind = 0; ind != clouds_top.size(); ind++)
   {
     pcl::fromROSMsg(*clouds_top[ind], *cloud_t_orig);
     pcl::fromROSMsg(*clouds_top[ind], *cloud_t_xyz);
@@ -698,11 +777,11 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
     // std::cout << *cloud_t_xyz << std::endl;
     // std::cout << *reconstruct_pt_cloud << std::endl;
 
-    //Verify if point cloud is reconstructed accurately from range image correspondences
-    if ((*cloud_t_xyz).size() != (*reconstruct_pt_cloud).size()){
-      ROS_WARN("Some points are skipped, check again!!");
-      return;
-    }
+    // //Verify if point cloud is reconstructed accurately from range image correspondences
+    // if ((*cloud_t_xyz).size() != (*reconstruct_pt_cloud).size()){
+    //   ROS_WARN("Some points are skipped, check again!!");
+    //   return;
+    // }
 
     // //Visualization
     // //Color handlers for red, green, blue and yellow color
@@ -713,8 +792,8 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
     // pcl::visualization::PCLVisualizer vis("3D View");
     // // // vis.addPointCloud(cloud_no_rain_boxed,red,"src",0);
     // vis.addPointCloud(cloud_t_xyz,blue,"tgt",0);
-    // vis.addPointCloud(reconstruct_pt_cloud,green,"reconstruct_pt_cloud",0);
-    // // vis.addPointCloud(rain_points,yellow,"rain_points",0);
+    // //vis.addPointCloud(reconstruct_pt_cloud,green,"reconstruct_pt_cloud",0);
+    //  vis.addPointCloud(rain_points,yellow,"rain_points",0);
     // while(!vis.wasStopped())
     // {
     //         vis.spinOnce();

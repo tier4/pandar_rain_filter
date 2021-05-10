@@ -24,13 +24,22 @@ The data will be stored in `output_path` with the following structure:
 └── output_path
     ├─particle_labels
     │   ├─train
-    │  	│ ├─0.png
-    │   │ ├─1.png
-    │   │ ├─ ...
+    │   │ ├─first
+    │   │ │ ├─0.png
+    │   │ │ ├─1.png
+    │   │ │ ├─ ...
+    │   │ └─last
+    │   │   ├─0.png
+    │   │   ├─1.png
+    │   │   ├─ ...
     │   └─val
-    │  	  ├─0.png
-    │     ├─1.png
-    │     ├─ ...
+    │     ├─first
+    │     │ ├─0.png
+    │     │ ├─1.png
+    │     └─last
+    │       ├─0.png
+    │       ├─1.png
+    │       ├─ ...
     └─range_images
         ├─train
         │ ├─first_depth

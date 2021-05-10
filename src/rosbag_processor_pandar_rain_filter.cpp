@@ -106,10 +106,10 @@ struct PointComparator
 
 void init_directories(std::string &in_outpath, std::string &train_val_selection)
 {
-  std::string path_label_str,path_ranges_first_depth_str, path_ranges_first_int_str, path_ranges_first_ret_str,
-      path_ranges_last_depth_str, path_ranges_last_int_str, path_ranges_last_ret_str, path_point_cloud_str;
-
-  path_label_str = std::string(in_outpath) + "/particle_labels/" + std::string(train_val_selection);
+  std::string path_label_first_str, path_label_last_str, path_ranges_first_depth_str, path_ranges_first_int_str, 
+       path_ranges_first_ret_str, path_ranges_last_depth_str, path_ranges_last_int_str, path_ranges_last_ret_str, path_point_cloud_str;
+  path_label_first_str = std::string(in_outpath) + "/particle_labels/" + std::string(train_val_selection) + "/first/";
+  path_label_last_str = std::string(in_outpath) + "/particle_labels/" + std::string(train_val_selection) + "/last/";
   path_ranges_first_depth_str = std::string(in_outpath) + "/range_images/" + std::string(train_val_selection) + "/first_depth/";
   path_ranges_first_int_str = std::string(in_outpath) + "/range_images/" + std::string(train_val_selection) + "/first_intensity/";
   path_ranges_first_ret_str = std::string(in_outpath) + "/range_images/" + std::string(train_val_selection) + "/first_return_type/";
@@ -124,7 +124,8 @@ void init_directories(std::string &in_outpath, std::string &train_val_selection)
     boost::filesystem::create_directories(base_dir);
   }
 
-  boost::filesystem::path path_labels(path_label_str.c_str());
+  boost::filesystem::path path_labels_first(path_label_first_str.c_str());
+  boost::filesystem::path path_labels_last(path_label_last_str.c_str());
   boost::filesystem::path path_ranges_first_depth(path_ranges_first_depth_str.c_str());
   boost::filesystem::path path_ranges_first_int(path_ranges_first_int_str.c_str());
   boost::filesystem::path path_ranges_first_ret(path_ranges_first_ret_str.c_str());
@@ -133,7 +134,8 @@ void init_directories(std::string &in_outpath, std::string &train_val_selection)
   boost::filesystem::path path_ranges_last_ret(path_ranges_last_ret_str.c_str());
   boost::filesystem::path path_point_cloud(path_point_cloud_str.c_str());
 
-  boost::filesystem::create_directories(path_labels);
+  boost::filesystem::create_directories(path_labels_first);
+  boost::filesystem::create_directories(path_labels_last);
   boost::filesystem::create_directories(path_ranges_first_depth);
   boost::filesystem::create_directories(path_ranges_first_int);
   boost::filesystem::create_directories(path_ranges_first_ret);
@@ -582,7 +584,7 @@ void make_range_vectors(pcl::PointCloud<PointXYZIRADT>::Ptr cloud_t_orig, pcl::P
 
 void range_image_generator(cv::Mat first_range_img, cv::Mat first_intensity_img, cv::Mat first_ret_type_img, 
                           cv::Mat last_range_img, cv::Mat last_intensity_img, cv::Mat last_ret_type_img, 
-                          cv::Mat labels, std::vector<std::vector<Range_point>> &ring_ids_first,
+                          cv::Mat labels_first, cv::Mat labels_last, std::vector<std::vector<Range_point>> &ring_ids_first,
                           std::vector<std::vector<Range_point>> &ring_ids_last){
   for (int i = 0; i < 40; i++) {
     //ROS_WARN("Ring length first: %d, ring id: %d", ring_ids_first[i].size(), i);
@@ -592,7 +594,7 @@ void range_image_generator(cv::Mat first_range_img, cv::Mat first_intensity_img,
         first_ret_type_img.row(i).col(j) = static_cast<int8_t>(ring_ids_first[i].at(j).return_type);
 
         if (ring_ids_first[i].at(j).rain_label == 1)
-          labels.row(i).col(j) = 1;
+          labels_first.row(i).col(j) = 1;
         // std::cout << "distance: " << "i: " << i << "j: " << j << chans[0].row(i).col(j) << std::endl;
         // std::cout << "intensity: " << "i: " << i << "j: " << j << chans[1].row(i).col(j) << std::endl;
         // std::cout << "return_type: " << "i: " << i << "j: " << j << chans[2].row(i).col(j) << std::endl;
@@ -602,6 +604,8 @@ void range_image_generator(cv::Mat first_range_img, cv::Mat first_intensity_img,
         last_range_img.row(i).col(j) = static_cast<int16_t>(ring_ids_last[i].at(j).distance*256.0);
         last_intensity_img.row(i).col(j) = static_cast<int8_t>(ring_ids_last[i].at(j).intensity);
         last_ret_type_img.row(i).col(j) = static_cast<int8_t>(ring_ids_last[i].at(j).return_type);
+        if (ring_ids_last[i].at(j).rain_label == 1)
+          labels_last.row(i).col(j) = 1;        
     }
   }
 
@@ -675,7 +679,8 @@ void reconstruct_point_cloud(pcl::PointCloud<PointT>::Ptr reconstruct_pt_cloud, 
 void save_images(const std::string output_path, const std::string train_val_selection, int ind, std::vector<std::vector<Range_point>> &ring_ids_first,
                 std::vector<std::vector<Range_point>> &ring_ids_last){
     //Generate labels for rain and non rain points
-    cv::Mat labels(40, 1800, CV_8UC1, cv::Scalar(0,0));
+    cv::Mat labels_first(40, 1800, CV_8UC1, cv::Scalar(0,0));
+    cv::Mat labels_last(40, 1800, CV_8UC1, cv::Scalar(0,0));
     //Creating range images first and last
     cv::Mat first_range_img(40, 1800, CV_16UC1, cv::Scalar(0,0));
     cv::Mat first_intensity_img(40, 1800, CV_8UC1, cv::Scalar(0,0));
@@ -684,17 +689,18 @@ void save_images(const std::string output_path, const std::string train_val_sele
     cv::Mat last_intensity_img(40, 1800, CV_8UC1, cv::Scalar(0,0));
     cv::Mat last_ret_type_img(40, 1800, CV_8UC1, cv::Scalar(0,0));
     range_image_generator(first_range_img, first_intensity_img, first_ret_type_img, last_range_img, 
-                      last_intensity_img, last_ret_type_img, labels, ring_ids_first, ring_ids_last);
+                      last_intensity_img, last_ret_type_img, labels_first, labels_last, ring_ids_first, ring_ids_last);
 
     std::stringstream first_range_name, first_intensity_name, first_ret_type_name;
-    std::stringstream last_range_name, last_intensity_name, last_ret_type_name, label_name;
+    std::stringstream last_range_name, last_intensity_name, last_ret_type_name, first_label_name, last_label_name;
     std::string ss1 = "/range_images/" + train_val_selection + "/first_depth/";
     std::string ss2 = "/range_images/" + train_val_selection + "/first_intensity/";
     std::string ss3 = "/range_images/" + train_val_selection + "/first_return_type/"; 
     std::string ss4 = "/range_images/" + train_val_selection + "/last_depth/";      
     std::string ss5 = "/range_images/" + train_val_selection + "/last_intensity/";      
     std::string ss6 = "/range_images/" + train_val_selection + "/last_return_type/"; 
-    std::string ss7 = "/particle_labels/" + train_val_selection + "/";    
+    std::string ss7 = "/particle_labels/" + train_val_selection + "/first/";    
+    std::string ss8 = "/particle_labels/" + train_val_selection + "/last/";    
     std::string type1 = ".png";       
     std::string type2 = ".exr";    
     first_range_name<<output_path<<ss1<<(ind)<<type1;
@@ -703,7 +709,8 @@ void save_images(const std::string output_path, const std::string train_val_sele
     last_range_name<<output_path<<ss4<<(ind)<<type1;
     last_intensity_name<<output_path<<ss5<<(ind)<<type1;
     last_ret_type_name<<output_path<<ss6<<(ind)<<type1;
-    label_name<<output_path<<ss7<<(ind)<<type1;    
+    first_label_name<<output_path<<ss7<<(ind)<<type1;    
+    last_label_name<<output_path<<ss8<<(ind)<<type1;    
 
     //Saving the range images
     cv::imwrite(first_range_name.str(), first_range_img);
@@ -714,7 +721,8 @@ void save_images(const std::string output_path, const std::string train_val_sele
     cv::imwrite(last_ret_type_name.str(), last_ret_type_img);
     
     //Saving the label images
-    cv::imwrite(label_name.str(), labels);
+    cv::imwrite(first_label_name.str(), labels_first);
+    cv::imwrite(last_label_name.str(), labels_last);
 }
 
 void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds_top, const std::string output_path, const std::string train_val_selection, const std::string no_rain_pcd_path){

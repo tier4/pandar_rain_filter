@@ -390,8 +390,8 @@ void remove_ground_points(pcl::PointCloud<PointT>::ConstPtr cloud_no_rain, pcl::
 void remove_non_building_points(pcl::PointCloud<PointT>::Ptr cloud_top_ngnd, pcl::PointCloud<PointT>::Ptr cloud_no_rain_ngnd,
                                 pcl::PointCloud<PointT>::Ptr cloud_top_boxed, pcl::PointCloud<PointT>::Ptr cloud_no_rain_boxed){
     pcl::CropBox<PointT> boxFilter;
-    boxFilter.setMin(Eigen::Vector4f(-21.0, -30.0, -16, 1.0));
-    boxFilter.setMax(Eigen::Vector4f(56.0, 20.0, 16, 1.0));
+    boxFilter.setMin(Eigen::Vector4f(-16.0, -20.0, -16, 1.0));
+    boxFilter.setMax(Eigen::Vector4f(46.0, 10.0, 16, 1.0));
     boxFilter.setInputCloud(cloud_top_ngnd);
     boxFilter.filter(*cloud_top_boxed);
     boxFilter.setInputCloud(cloud_no_rain_ngnd);

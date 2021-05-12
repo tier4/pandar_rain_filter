@@ -401,9 +401,12 @@ void remove_non_building_points(pcl::PointCloud<PointT>::Ptr cloud_top_ngnd, pcl
 void make_range_vectors(pcl::PointCloud<PointXYZIRADT>::Ptr cloud_t_orig, pcl::PointCloud<PointT>::Ptr cloud_t_xyz,
                         pcl::PointCloud<PointT>::Ptr rain_points, std::vector<std::vector<Range_point>> &ring_ids_first,
                         std::vector<std::vector<Range_point>> &ring_ids_last){
-    //build KDtree of rain points to populate label image
+  //build KDtree of rain points to populate label image
+  //Check if there are rain points
   pcl::KdTreeFLANN<PointT> kdtree;
-  kdtree.setInputCloud (rain_points);
+  if(rain_points->size() > 0){
+    kdtree.setInputCloud (rain_points);
+  }
   // K nearest neighbor search
   int K = 1;
   std::vector<int> pointIdxNKNSearch(K);
@@ -425,12 +428,17 @@ void make_range_vectors(pcl::PointCloud<PointXYZIRADT>::Ptr cloud_t_orig, pcl::P
           pt.x = pt_c.x;
           pt.y = pt_c.y;
           pt.z = pt_c.z;
-          if ( kdtree.nearestKSearch (pt_trunc, K, pointIdxNKNSearch, pointNKNSquaredDistance) == 1 && pointNKNSquaredDistance[0] == 0.0 ) {
-            pt.rain_label = 1; //point found in rain points so we mark the label as 1
+          //Check if there are rain points
+          if(rain_points->size() > 0){
+            if ( kdtree.nearestKSearch (pt_trunc, K, pointIdxNKNSearch, pointNKNSquaredDistance) == 1 && pointNKNSquaredDistance[0] == 0.0 ) {
+              pt.rain_label = 1; //point found in rain points so we mark the label as 1
+            }
+            else{
+              pt.rain_label = 0;
+            }
           }
-          else{
+          else
             pt.rain_label = 0;
-          }
           if (pt.return_type == 7){ //add first & last ranges
             if(ring_ids_first[ring_id].empty()){ //No points stored in the ring yet.
               // Check if any points are skipped in the beginning add blank or no points are skipped store the point #TODO
@@ -589,21 +597,21 @@ void range_image_generator(cv::Mat first_range_img, cv::Mat first_intensity_img,
   for (int i = 0; i < 40; i++) {
     //ROS_WARN("Ring length first: %d, ring id: %d", ring_ids_first[i].size(), i);
     for (int j = 0; j < static_cast<int>(ring_ids_first[i].size()); j++) {
-        first_range_img.row(i).col(j) = static_cast<int16_t>(ring_ids_first[i].at(j).distance*256.0);
-        first_intensity_img.row(i).col(j) = static_cast<int8_t>(ring_ids_first[i].at(j).intensity);
-        first_ret_type_img.row(i).col(j) = static_cast<int8_t>(ring_ids_first[i].at(j).return_type);
+        first_range_img.row(i).col(j) = static_cast<uint16_t>(ring_ids_first[i].at(j).distance*256.0);
+        first_intensity_img.row(i).col(j) = static_cast<uint8_t>(ring_ids_first[i].at(j).intensity);
+        first_ret_type_img.row(i).col(j) = static_cast<uint8_t>(ring_ids_first[i].at(j).return_type);
 
         if (ring_ids_first[i].at(j).rain_label == 1)
           labels_first.row(i).col(j) = 1;
         // std::cout << "distance: " << "i: " << i << "j: " << j << chans[0].row(i).col(j) << std::endl;
-        // std::cout << "intensity: " << "i: " << i << "j: " << j << chans[1].row(i).col(j) << std::endl;
         // std::cout << "return_type: " << "i: " << i << "j: " << j << chans[2].row(i).col(j) << std::endl;
     }
     //ROS_WARN("Ring length last: %d, ring id: %d", ring_ids_last[i].size(), i);     
     for (int j = 0; j < static_cast<int>(ring_ids_last[i].size()); j++) {
-        last_range_img.row(i).col(j) = static_cast<int16_t>(ring_ids_last[i].at(j).distance*256.0);
-        last_intensity_img.row(i).col(j) = static_cast<int8_t>(ring_ids_last[i].at(j).intensity);
-        last_ret_type_img.row(i).col(j) = static_cast<int8_t>(ring_ids_last[i].at(j).return_type);
+        last_range_img.row(i).col(j) = static_cast<uint16_t>(ring_ids_last[i].at(j).distance*256.0);
+        last_intensity_img.row(i).col(j) = static_cast<uint8_t>(ring_ids_last[i].at(j).intensity);
+        last_ret_type_img.row(i).col(j) = static_cast<uint8_t>(ring_ids_last[i].at(j).return_type);
+
         if (ring_ids_last[i].at(j).rain_label == 1)
           labels_last.row(i).col(j) = 1;        
     }
@@ -652,6 +660,9 @@ void reconstruct_point_cloud(pcl::PointCloud<PointT>::Ptr reconstruct_pt_cloud, 
         reconstruct_pt_cloud->push_back(point);    
     }
   }
+
+  //std::cout << "No of reconstruct_pt_cloud cloud msgs: " << reconstruct_pt_cloud->size() << std::endl;
+  
   //build KDtree of first range points 
   pcl::KdTreeFLANN<PointT> kdtree;
   kdtree.setInputCloud (reconstruct_pt_cloud);  
@@ -725,7 +736,8 @@ void save_images(const std::string output_path, const std::string train_val_sele
     cv::imwrite(last_label_name.str(), labels_last);
 }
 
-void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds_top, const std::string output_path, const std::string train_val_selection, const std::string no_rain_pcd_path){
+void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds_top, const std::string output_path, 
+                         const std::string train_val_selection, const std::string no_rain_pcd_path, size_t index_offset){
 
   pcl::PointCloud<PointT>::Ptr cloud_no_rain_orig (new pcl::PointCloud<PointT>);
   pcl::PointCloud<PointT>::Ptr cloud_t_xyz (new pcl::PointCloud<PointT>);
@@ -749,7 +761,6 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
     pcl::PointCloud<PointT>::Ptr cloud_top_boxed (new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr cloud_no_rain_boxed (new pcl::PointCloud<PointT>);
     remove_non_building_points(cloud_top_ngnd, cloud_no_rain_ngnd, cloud_top_boxed, cloud_no_rain_boxed);
-
     pcl::PointCloud<PointT>::Ptr out (new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr rain_points (new pcl::PointCloud<PointT>);
     //Segment differences
@@ -763,6 +774,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
     
     // Get point cloud difference
     pcl::getPointCloudDifference<PointT> (*cloud_top_boxed,*cloud_no_rain_boxed,0.1f,tree,*rain_points);
+
     // std::cout << *rain_points; 
     // std::cout << *cloud_t; 
     // std::cout << *cloud_no_rain; 
@@ -776,7 +788,7 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
     // Sometimes 1796, 1798 #Todo (check why??)
 
     //Creating range images first and last
-    save_images(output_path, train_val_selection, ind, ring_ids_first, ring_ids_last);
+    save_images(output_path, train_val_selection, ind+index_offset, ring_ids_first, ring_ids_last);
     
     //Check if the range image matches the original point cloud
     cv::Mat point_cloud_img_first(40, 1800, CV_32FC3, cv::Scalar(0.0,0.0,0.0));
@@ -787,8 +799,8 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
     std::string ss4 = "/point_cloud_images/point_cloud_first_img_";   
     std::string ss5 = "/point_cloud_images/point_cloud_last_img_";   
     std::string type1 = ".exr";
-    point_cloud_first_name<<output_path<<ss4<<(ind)<<type1;
-    point_cloud_last_name<<output_path<<ss5<<(ind)<<type1;
+    point_cloud_first_name<<output_path<<ss4<<(ind+index_offset)<<type1;
+    point_cloud_last_name<<output_path<<ss5<<(ind+index_offset)<<type1;
     //Saving point cloud images
     cv::imwrite(point_cloud_first_name.str(), point_cloud_img_first);
     cv::imwrite(point_cloud_last_name.str(), point_cloud_img_last);
@@ -800,27 +812,28 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
     // std::cout << *cloud_t_xyz << std::endl;
     // std::cout << *reconstruct_pt_cloud << std::endl;
 
-    // //Verify if point cloud is reconstructed accurately from range image correspondences
-    // if ((*cloud_t_xyz).size() != (*reconstruct_pt_cloud).size()){
-    //   ROS_WARN("Some points are skipped, check again!!");
-    //   return;
-    // }
+    //Verify if point cloud is reconstructed accurately from range image correspondences
+    if ((*cloud_t_xyz).size() != (*reconstruct_pt_cloud).size()){
+      ROS_WARN("Some points are skipped, check again!!");
+      return;
+    }
 
-    // //Visualization
-    // //Color handlers for red, green, blue and yellow color
-    // pcl::visualization::PointCloudColorHandlerCustom<PointT> red(cloud_no_rain,255,0,0);
-    // pcl::visualization::PointCloudColorHandlerCustom<PointT> blue(cloud_t_xyz,0,0,255);
-    // pcl::visualization::PointCloudColorHandlerCustom<PointT> green(reconstruct_pt_cloud,0,255,0);
-    // pcl::visualization::PointCloudColorHandlerCustom<PointT> yellow(rain_points,255,255,0);    
-    // pcl::visualization::PCLVisualizer vis("3D View");
-    // // // vis.addPointCloud(cloud_no_rain_boxed,red,"src",0);
-    // vis.addPointCloud(cloud_t_xyz,blue,"tgt",0);
-    // //vis.addPointCloud(reconstruct_pt_cloud,green,"reconstruct_pt_cloud",0);
-    //  vis.addPointCloud(rain_points,yellow,"rain_points",0);
-    // while(!vis.wasStopped())
-    // {
-    //         vis.spinOnce();
-    // }  
+    //Visualization
+    //Color handlers for red, green, blue and yellow color
+    pcl::visualization::PointCloudColorHandlerCustom<PointT> red(cloud_no_rain,255,0,0);
+    pcl::visualization::PointCloudColorHandlerCustom<PointT> blue(cloud_t_xyz,0,0,255);
+    pcl::visualization::PointCloudColorHandlerCustom<PointT> green(reconstruct_pt_cloud,0,255,0);
+    pcl::visualization::PointCloudColorHandlerCustom<PointT> yellow(rain_points,255,255,0);    
+    pcl::visualization::PCLVisualizer vis("3D View");
+    // // vis.addPointCloud(cloud_no_rain_boxed,red,"src",0);
+    vis.addPointCloud(cloud_t_xyz,blue,"tgt",0);
+    //vis.addPointCloud(reconstruct_pt_cloud,green,"reconstruct_pt_cloud",0);
+     vis.addPointCloud(rain_points,yellow,"rain_points",0);
+    while(!vis.wasStopped())
+    {
+            vis.spinOnce();
+    } 
+    break; 
   }
 }
 
@@ -933,16 +946,34 @@ int main(int argc, char **argv)
       }
     }
 
-
-    if (messages % 100 == 0)
-      std::cout << "\rProgress: (" << messages << " / " << total_messages << ") " << progress << "%            ";
     messages++;
+    std::cout << messages - cloud_msgs_top.size() << std::endl;
+    std::cout << cloud_msgs_top.size() << std::endl;
+    if (total_messages < 100){
+      std::cout << "\rProgress: (" << messages << " / " << total_messages << ") " << progress << "%            " << std::endl;
+      auto offset = messages - cloud_msgs_top.size();
+      process_pointclouds(cloud_msgs_top, output_path_, train_val_selection_, no_rain_pcd_path_, offset);
+      cloud_msgs_top.clear();
+    }
+    else if (messages % 100 == 0){
+      std::cout << "\rProgress: (" << messages << " / " << total_messages << ") " << progress << "%            " << std::endl;
+      auto offset = messages - cloud_msgs_top.size();
+      process_pointclouds(cloud_msgs_top, output_path_, train_val_selection_, no_rain_pcd_path_, offset);
+      cloud_msgs_top.clear();
+      break;
+    }
+    else if(messages <= total_messages && total_messages - messages < 100){
+      std::cout << "\rProgress: (" << messages << " / " << total_messages << ") " << progress << "%            " << std::endl;
+      auto offset = messages - cloud_msgs_top.size();
+      process_pointclouds(cloud_msgs_top, output_path_, train_val_selection_, no_rain_pcd_path_, offset);
+      cloud_msgs_top.clear();
+    }
+    else if(messages > total_messages)
+      break;
   }
   std::cout << std::endl;
   input_bag.close();
-  std::cout << "No of point cloud msgs: " << cloud_msgs_top.size() << std::endl;
 
-  process_pointclouds(cloud_msgs_top, output_path_, train_val_selection_, no_rain_pcd_path_);
   std::cout << "Range and Label images generated! " << std::endl;
   return 0;
 }

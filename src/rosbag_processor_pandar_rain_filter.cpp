@@ -358,7 +358,7 @@ void remove_ground_points(pcl::PointCloud<PointT>::ConstPtr cloud_no_rain, pcl::
   pcl::PointIndices::Ptr inliers(new pcl::PointIndices());
   for (int i = 0; i < (*cloud_no_rain).size(); i++)
   {
-    if (cloud_no_rain->points[i].z < (minPt.z + 1.35)) // e.g. remove all pts below ground
+    if (cloud_no_rain->points[i].z < (minPt.z)) // e.g. remove all pts below ground
     {
       inliers->indices.push_back(i);
     }
@@ -374,7 +374,7 @@ void remove_ground_points(pcl::PointCloud<PointT>::ConstPtr cloud_no_rain, pcl::
   pcl::PointIndices::Ptr inliers1(new pcl::PointIndices());
   for (int i = 0; i < (*cloud_top).size(); i++) //
   {
-    if (cloud_top->points[i].z < (minPt.z + 1.35)) // e.g. remove all pts below zAvg
+    if (cloud_top->points[i].z < (minPt.z)) // e.g. remove all pts below zAvg
     {
       inliers1->indices.push_back(i);
     }
@@ -390,8 +390,8 @@ void remove_ground_points(pcl::PointCloud<PointT>::ConstPtr cloud_no_rain, pcl::
 void remove_non_building_points(pcl::PointCloud<PointT>::Ptr cloud_top_ngnd, pcl::PointCloud<PointT>::Ptr cloud_no_rain_ngnd,
                                 pcl::PointCloud<PointT>::Ptr cloud_top_boxed, pcl::PointCloud<PointT>::Ptr cloud_no_rain_boxed){
     pcl::CropBox<PointT> boxFilter;
-    boxFilter.setMin(Eigen::Vector4f(-16.0, -20.0, -16, 1.0));
-    boxFilter.setMax(Eigen::Vector4f(46.0, 10.0, 16, 1.0));
+    boxFilter.setMin(Eigen::Vector4f(-16.0, -25.0, -16, 1.0));
+    boxFilter.setMax(Eigen::Vector4f(46.0, 13.0, 16, 1.0));
     boxFilter.setInputCloud(cloud_top_ngnd);
     boxFilter.filter(*cloud_top_boxed);
     boxFilter.setInputCloud(cloud_no_rain_ngnd);
@@ -602,7 +602,7 @@ void range_image_generator(cv::Mat first_range_img, cv::Mat first_intensity_img,
         first_ret_type_img.row(i).col(j) = static_cast<uint8_t>(ring_ids_first[i].at(j).return_type);
 
         if (ring_ids_first[i].at(j).rain_label == 1)
-          labels_first.row(i).col(j) = 1;
+          labels_first.row(i).col(j) = 255;
         // std::cout << "distance: " << "i: " << i << "j: " << j << chans[0].row(i).col(j) << std::endl;
         // std::cout << "return_type: " << "i: " << i << "j: " << j << chans[2].row(i).col(j) << std::endl;
     }
@@ -613,7 +613,7 @@ void range_image_generator(cv::Mat first_range_img, cv::Mat first_intensity_img,
         last_ret_type_img.row(i).col(j) = static_cast<uint8_t>(ring_ids_last[i].at(j).return_type);
 
         if (ring_ids_last[i].at(j).rain_label == 1)
-          labels_last.row(i).col(j) = 1;        
+          labels_last.row(i).col(j) = 255;        
     }
   }
 
@@ -818,22 +818,21 @@ void process_pointclouds(std::vector<sensor_msgs::PointCloud2::ConstPtr> &clouds
       return;
     }
 
-    //Visualization
-    //Color handlers for red, green, blue and yellow color
-    pcl::visualization::PointCloudColorHandlerCustom<PointT> red(cloud_no_rain,255,0,0);
-    pcl::visualization::PointCloudColorHandlerCustom<PointT> blue(cloud_t_xyz,0,0,255);
-    pcl::visualization::PointCloudColorHandlerCustom<PointT> green(reconstruct_pt_cloud,0,255,0);
-    pcl::visualization::PointCloudColorHandlerCustom<PointT> yellow(rain_points,255,255,0);    
-    pcl::visualization::PCLVisualizer vis("3D View");
-    // // vis.addPointCloud(cloud_no_rain_boxed,red,"src",0);
-    vis.addPointCloud(cloud_t_xyz,blue,"tgt",0);
-    //vis.addPointCloud(reconstruct_pt_cloud,green,"reconstruct_pt_cloud",0);
-     vis.addPointCloud(rain_points,yellow,"rain_points",0);
-    while(!vis.wasStopped())
-    {
-            vis.spinOnce();
-    } 
-    break; 
+    // //Visualization
+    // //Color handlers for red, green, blue and yellow color
+    // pcl::visualization::PointCloudColorHandlerCustom<PointT> red(cloud_no_rain,255,0,0);
+    // pcl::visualization::PointCloudColorHandlerCustom<PointT> blue(cloud_t_xyz,0,0,255);
+    // pcl::visualization::PointCloudColorHandlerCustom<PointT> green(reconstruct_pt_cloud,0,255,0);
+    // pcl::visualization::PointCloudColorHandlerCustom<PointT> yellow(rain_points,255,255,0);    
+    // pcl::visualization::PCLVisualizer vis("3D View");
+    // // // vis.addPointCloud(cloud_no_rain_boxed,red,"src",0);
+    // vis.addPointCloud(cloud_t_xyz,blue,"tgt",0);
+    // //vis.addPointCloud(reconstruct_pt_cloud,green,"reconstruct_pt_cloud",0);
+    //  vis.addPointCloud(rain_points,yellow,"rain_points",0);
+    // while(!vis.wasStopped())
+    // {
+    //         vis.spinOnce();
+    // } 
   }
 }
 
@@ -947,8 +946,6 @@ int main(int argc, char **argv)
     }
 
     messages++;
-    std::cout << messages - cloud_msgs_top.size() << std::endl;
-    std::cout << cloud_msgs_top.size() << std::endl;
     if (total_messages < 100){
       std::cout << "\rProgress: (" << messages << " / " << total_messages << ") " << progress << "%            " << std::endl;
       auto offset = messages - cloud_msgs_top.size();
@@ -960,7 +957,6 @@ int main(int argc, char **argv)
       auto offset = messages - cloud_msgs_top.size();
       process_pointclouds(cloud_msgs_top, output_path_, train_val_selection_, no_rain_pcd_path_, offset);
       cloud_msgs_top.clear();
-      break;
     }
     else if(messages <= total_messages && total_messages - messages < 100){
       std::cout << "\rProgress: (" << messages << " / " << total_messages << ") " << progress << "%            " << std::endl;
